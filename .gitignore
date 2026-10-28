@@ -1,0 +1,12 @@
+node_modules/
+.DS_Store
+*.log
+
+# Secrets: never commit real env files (the .env.example templates are kept)
+.env
+.env.*
+!.env.example
+
+# Local database & build output
+server/data/*.db*
+dist/

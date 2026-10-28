@@ -1,0 +1,2 @@
+# Daily database backup at 03:00 (add with `crontab -e` on the server; adjust the path).
+0 3 * * * cd /opt/live-translate/deploy && docker compose exec -T server node dist/scripts/backup.js >> /var/log/live-translate-backup.log 2>&1

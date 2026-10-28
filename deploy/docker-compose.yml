@@ -1,0 +1,39 @@
+# Production stack: API server + Caddy (automatic HTTPS) serving the web app.
+# Usage: see README > Deploy. Requires DNS for API_DOMAIN and APP_DOMAIN pointing at this machine.
+services:
+  server:
+    build: ../server
+    restart: unless-stopped
+    env_file: ../server/.env
+    environment:
+      NODE_ENV: production
+      DATABASE_PATH: /app/data/app.db
+      BACKUP_DIR: /app/data/backups
+    volumes:
+      - app-data:/app/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [server]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in deploy/.env}
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../mobile/dist:/srv/web:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  app-data:
+  caddy-data:
+  caddy-config:
