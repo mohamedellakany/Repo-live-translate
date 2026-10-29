@@ -37,7 +37,7 @@ A **speaker** talks (in Arabic by default, or one of 13 other languages), and an
 | History (speakers) | Every session is saved. Untitled sessions are named after their date (e.g. "Tuesday, October 28, 2026"). Speakers can share, delete, and choose whether listeners may revisit each session. |
 | My sessions (listeners) | Signed-in listeners keep the sessions they attended and can reread them in their language. Guests are offered a free account when a session ends, and the session is added once they sign up. |
 | AI summaries | Title, overview, key points, decisions and action items. Generated **automatically when a session ends**, and can be regenerated on demand. |
-| Appearance | Dark (default), Light, or Same as device. Switch from the Home screen or Account. |
+| Appearance | Dark (default) or Light. Tap the sun/moon button on the Home screen, or use the switch in Account. The choice is remembered on each device. |
 | Interface | English and Arabic (right-to-left), selectable in the app. |
 
 ## Quick start

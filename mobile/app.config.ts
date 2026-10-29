@@ -16,7 +16,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
-  // "automatic" so the in-app "Same as device" theme can follow the system setting.
+  // The app sets light/dark itself at runtime (Appearance.setColorScheme) from the in-app theme switch.
   userInterfaceStyle: "automatic",
   backgroundColor: BG,
   ios: {

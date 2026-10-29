@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Appearance, Platform, StyleSheet, useColorScheme, type ImageStyle, type TextStyle, type ViewStyle } from "react-native";
+import { Appearance, Platform, StyleSheet, type ImageStyle, type TextStyle, type ViewStyle } from "react-native";
 import { storage } from "@/lib/storage";
 
 const dark = {
@@ -41,11 +41,8 @@ const light: ThemeColors = {
 
 export const palettes = { dark, light };
 export type ThemeName = keyof typeof palettes;
-/** What the user picked: a fixed theme, or follow the device. */
-export type ThemePreference = ThemeName | "system";
-export const THEME_PREFERENCES: ThemePreference[] = ["system", "light", "dark"];
-/** The app was designed dark-first, so that stays the default until the user picks otherwise. */
-const DEFAULT_PREFERENCE: ThemePreference = "dark";
+/** The app was designed dark-first, so that stays the default until the user switches. */
+const DEFAULT_THEME: ThemeName = "dark";
 const KEY = "lt.theme";
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
@@ -55,42 +52,35 @@ export const maxContentWidth = 760;
 interface ThemeState {
   name: ThemeName;
   colors: ThemeColors;
-  preference: ThemePreference;
-  setPreference: (p: ThemePreference) => void;
+  /** Switch between dark and light. */
+  toggleTheme: () => void;
 }
 
-const ThemeContext = createContext<ThemeState>({
-  name: "dark",
-  colors: dark,
-  preference: DEFAULT_PREFERENCE,
-  setPreference: () => {},
-});
+const ThemeContext = createContext<ThemeState>({ name: DEFAULT_THEME, colors: dark, toggleTheme: () => {} });
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const device = useColorScheme();
-  const [preference, setPreferenceState] = useState<ThemePreference>(DEFAULT_PREFERENCE);
+  const [name, setName] = useState<ThemeName>(DEFAULT_THEME);
 
   useEffect(() => {
     storage.get(KEY).then((saved) => {
-      if (saved && (THEME_PREFERENCES as string[]).includes(saved)) setPreferenceState(saved as ThemePreference);
+      if (saved === "light" || saved === "dark") setName(saved);
     });
   }, []);
 
   // Native alerts, pickers and the keyboard follow the in-app choice too.
   useEffect(() => {
-    if (Platform.OS !== "web") Appearance.setColorScheme(preference === "system" ? "auto" : preference);
-  }, [preference]);
+    if (Platform.OS !== "web") Appearance.setColorScheme(name);
+  }, [name]);
 
-  const setPreference = useCallback((p: ThemePreference) => {
-    setPreferenceState(p);
-    void storage.set(KEY, p);
+  const toggleTheme = useCallback(() => {
+    setName((current) => {
+      const next: ThemeName = current === "dark" ? "light" : "dark";
+      void storage.set(KEY, next);
+      return next;
+    });
   }, []);
 
-  const value = useMemo<ThemeState>(() => {
-    const name: ThemeName = preference === "system" ? (device === "light" ? "light" : "dark") : preference;
-    return { name, colors: palettes[name], preference, setPreference };
-  }, [preference, device, setPreference]);
-
+  const value = useMemo<ThemeState>(() => ({ name, colors: palettes[name], toggleTheme }), [name, toggleTheme]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

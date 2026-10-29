@@ -3,7 +3,6 @@ import { Link, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import { Image, Pressable, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
-import { ThemeSheet } from "@/components/ThemeSheet";
 import { Button, Card, Chip, IconButton, Screen, TextField } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
@@ -12,10 +11,9 @@ import { recentSpeakers, type RecentSpeaker } from "@/lib/recentSpeakers";
 import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 export default function Home() {
-  const { colors, name: themeName } = useTheme();
+  const { colors, name: themeName, toggleTheme } = useTheme();
   const styles = useStyles();
   const { user } = useAuth();
-  const [themePicker, setThemePicker] = useState(false);
   const { t, lang, setLang } = useI18n();
   const [speakerId, setSpeakerId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +59,9 @@ export default function Home() {
             <Text style={styles.langText}>{lang === "ar" ? "English" : "العربية"}</Text>
           </Pressable>
           <IconButton
-            icon={themeName === "dark" ? "moon-outline" : "sunny-outline"}
-            label={t("theme.title")}
-            onPress={() => setThemePicker(true)}
+            icon={themeName === "dark" ? "sunny-outline" : "moon-outline"}
+            label={themeName === "dark" ? t("theme.toLight") : t("theme.toDark")}
+            onPress={toggleTheme}
           />
           <IconButton
             icon={user ? "person-circle" : "person-circle-outline"}
@@ -155,7 +153,6 @@ export default function Home() {
           {t("home.terms")}
         </Link>
       </View>
-      <ThemeSheet visible={themePicker} onClose={() => setThemePicker(false)} />
     </Screen>
   );
 }

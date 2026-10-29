@@ -290,10 +290,9 @@ export const en = {
   "history.allowRevisit": "Listeners can read it again",
   "history.allowRevisitHint": "Listeners who attended can reopen this session from \"My sessions\".",
   // appearance
-  "theme.title": "Appearance",
-  "theme.system": "Same as device",
-  "theme.light": "Light",
-  "theme.dark": "Dark",
+  "theme.dark": "Dark theme",
+  "theme.toLight": "Switch to light theme",
+  "theme.toDark": "Switch to dark theme",
 };
 
 export type TKey = keyof typeof en;

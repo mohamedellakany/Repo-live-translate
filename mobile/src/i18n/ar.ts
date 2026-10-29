@@ -275,8 +275,7 @@ export const ar: Record<TKey, string> = {
   "history.allowRevisit": "يمكن للمستمعين قراءتها لاحقًا",
   "history.allowRevisitHint": "يمكن للمستمعين الذين حضروا إعادة فتح هذه الجلسة من «جلساتي».",
   // appearance
-  "theme.title": "المظهر",
-  "theme.system": "مثل إعداد الجهاز",
-  "theme.light": "فاتح",
-  "theme.dark": "داكن",
+  "theme.dark": "المظهر الداكن",
+  "theme.toLight": "التبديل إلى المظهر الفاتح",
+  "theme.toDark": "التبديل إلى المظهر الداكن",
 };
