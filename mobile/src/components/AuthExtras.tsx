@@ -5,12 +5,13 @@ import { useAuth } from "@/auth/AuthProvider";
 import { useI18n } from "@/i18n";
 import { routeAfterAuth } from "@/lib/postAuth";
 import { useServerConfig } from "@/lib/serverConfig";
-import { colors, spacing } from "@/theme";
+import { makeStyles, spacing } from "@/theme";
 import { GoogleSignInButton, googleSignInConfigured } from "./GoogleSignInButton";
 import { Banner } from "./ui";
 
 /** "Continue with Google" + divider, shown when both the app build and the server support it. */
 export function GoogleAuthSection({ next }: { next?: string }) {
+  const styles = useStyles();
   const { t } = useI18n();
   const { signInWithGoogle } = useAuth();
   const { features } = useServerConfig();
@@ -55,6 +56,7 @@ export function GoogleAuthSection({ next }: { next?: string }) {
 
 /** "By continuing you agree to our Terms and Privacy Policy" with tappable links. */
 export function LegalNotice() {
+  const styles = useStyles();
   const { t } = useI18n();
   const [before, rest = ""] = t("auth.agree").split("{terms}");
   const [middle, after = ""] = rest.split("{privacy}");
@@ -73,10 +75,10 @@ export function LegalNotice() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   divider: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   line: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   or: { color: colors.textDim, fontSize: 13 },
   legal: { color: colors.textDim, fontSize: 13, textAlign: "center", lineHeight: 19 },
   link: { color: colors.primary, fontWeight: "600" },
-});
+}));

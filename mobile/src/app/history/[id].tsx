@@ -1,52 +1,58 @@
-import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
-import { router, useLocalSearchParams } from "expo-router";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, Alert, Platform, ScrollView, Share, StyleSheet, Text, View } from "react-native";
-import { AppHeader, Banner, Button, Card, IconButton, Screen } from "@/components/ui";
-import { DEFAULT_TARGET } from "@/constants/languages";
+import { ActivityIndicator, Alert, Platform, ScrollView, Share, Text, View } from "react-native";
+import { useAuth } from "@/auth/AuthProvider";
+import { SummaryCard, summaryText } from "@/components/SummaryCard";
+import { AppHeader, Banner, Button, Card, IconButton, Screen, SwitchRow } from "@/components/ui";
+import { DEFAULT_TARGET, LANGUAGES } from "@/constants/languages";
 import { useI18n } from "@/i18n";
-import { api, type Summary, type TranscriptSegment } from "@/lib/api";
-import { formatDateTime } from "@/lib/format";
+import { api, type TranscriptSegment } from "@/lib/api";
+import { formatDateTime, formatSessionDate, formatTime } from "@/lib/format";
 import { useServerConfig } from "@/lib/serverConfig";
-import { colors, radius, spacing } from "@/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 export default function SessionTranscript() {
-  const { t } = useI18n();
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const { t, lang } = useI18n();
   const { features } = useServerConfig();
+  const { user, ready } = useAuth();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [data, setData] = useState<Awaited<ReturnType<typeof api.session>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
 
+  // After a reload the saved login is restored asynchronously; fetching before then fails with "Authentication required".
   useEffect(() => {
+    if (!user) return;
     api.session(String(id)).then(setData).catch((e) => setError(e.message));
-  }, [id]);
+  }, [id, user]);
 
   const summary = data?.session.summary ?? null;
+  // Sessions are summarized automatically when they end; refresh until that summary arrives.
+  const summaryPending = !summary && !!data?.session.summaryPending;
+  useEffect(() => {
+    if (!summaryPending) return;
+    const timer = setInterval(() => {
+      api.session(String(id)).then(setData).catch(() => {});
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [summaryPending, id]);
+
+  const namedTitle = data ? data.session.title || summary?.title || null : null;
+  const sourceRtl = data ? (LANGUAGES[data.session.sourceLang]?.rtl ?? true) : true;
 
   const asText = (segments: TranscriptSegment[]) =>
     segments.map((s) => `${s.translations[DEFAULT_TARGET] ?? ""}\n${s.original}`).join("\n\n");
-  const summaryText = (s: Summary) =>
-    [
-      s.title,
-      s.overview,
-      s.key_points.length ? `${t("history.keyPoints")}:\n${s.key_points.map((p) => `• ${p}`).join("\n")}` : "",
-      s.decisions.length ? `${t("history.decisions")}:\n${s.decisions.map((p) => `• ${p}`).join("\n")}` : "",
-      s.action_items.length
-        ? `${t("history.actionItems")}:\n${s.action_items.map((a) => `☐ ${a.task}${a.owner ? ` (${a.owner})` : ""}`).join("\n")}`
-        : "",
-    ]
-      .filter(Boolean)
-      .join("\n\n");
 
   const share = async () => {
     if (!data) return;
     const text = [
-      data.session.title || t("common.appName"),
+      namedTitle || formatSessionDate(data.session.startedAt, lang),
       formatDateTime(data.session.startedAt),
-      summary ? summaryText(summary) : "",
+      summary ? summaryText(summary, t) : "",
       `${t("history.transcript")}:\n\n${asText(data.segments)}`,
     ]
       .filter(Boolean)
@@ -74,6 +80,17 @@ export default function SessionTranscript() {
     }
   };
 
+  const setAllowRevisit = async (allowRevisit: boolean) => {
+    setError(null);
+    setData((d) => (d ? { ...d, session: { ...d.session, allowRevisit } } : d));
+    try {
+      await api.updateSession(String(id), { allowRevisit });
+    } catch (e) {
+      setData((d) => (d ? { ...d, session: { ...d.session, allowRevisit: !allowRevisit } } : d));
+      setError((e as Error).message);
+    }
+  };
+
   const remove = () => {
     const doDelete = async () => {
       try {
@@ -93,6 +110,8 @@ export default function SessionTranscript() {
     }
   };
 
+  if (ready && !user) return <Redirect href={{ pathname: "/login", params: { next: `/history/${id}` } }} />;
+
   return (
     <Screen
       header={
@@ -108,10 +127,10 @@ export default function SessionTranscript() {
       {data && (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: spacing.md, paddingBottom: spacing.xl }}>
           <View style={{ gap: 4 }}>
-            <Text style={styles.title}>{data.session.title || summary?.title || t("history.untitled")}</Text>
+            <Text style={styles.title}>{namedTitle || formatSessionDate(data.session.startedAt, lang)}</Text>
             <Text style={styles.meta}>
               {[
-                formatDateTime(data.session.startedAt),
+                namedTitle ? formatDateTime(data.session.startedAt) : formatTime(data.session.startedAt, lang),
                 t("history.lines", { count: data.segments.length }),
                 t("history.listeners", { count: data.session.peakListeners }),
               ].join(" · ")}
@@ -122,33 +141,29 @@ export default function SessionTranscript() {
           </View>
 
           {summary ? (
-            <Card style={styles.summary}>
-              <View style={styles.summaryHead}>
-                <Ionicons name="sparkles" size={18} color={colors.primary} />
-                <Text style={styles.summaryLabel}>{t("history.summary")}</Text>
-              </View>
-              <Text style={[styles.body, styles.ltr]}>{summary.overview}</Text>
-              <SummaryList title={t("history.keyPoints")} items={summary.key_points} />
-              <SummaryList title={t("history.decisions")} items={summary.decisions} />
-              <SummaryList
-                title={t("history.actionItems")}
-                items={summary.action_items.map((a) => `${a.task}${a.owner ? ` (${a.owner})` : ""}`)}
-                bullet="☐"
-              />
-              <Text style={styles.note}>{t("history.summaryNote")}</Text>
+            <SummaryCard summary={summary}>
               {features.summaries && (
                 <Button title={t("history.regenerate")} variant="ghost" icon="refresh" onPress={summarize} loading={summarizing} />
               )}
-            </Card>
+            </SummaryCard>
           ) : features.summaries && data.segments.length > 0 && data.session.endedAt ? (
             <Button
-              title={summarizing ? t("history.generating") : t("history.generateSummary")}
+              title={summarizing || summaryPending ? t("history.generating") : t("history.generateSummary")}
               icon="sparkles-outline"
               variant="secondary"
               onPress={summarize}
-              loading={summarizing}
+              loading={summarizing || summaryPending}
             />
           ) : null}
+
+          <Card>
+            <SwitchRow
+              label={t("history.allowRevisit")}
+              hint={t("history.allowRevisitHint")}
+              value={data.session.allowRevisit}
+              onValueChange={setAllowRevisit}
+            />
+          </Card>
 
           {data.segments.length === 0 && <Text style={styles.meta}>{t("history.nothingSaid")}</Text>}
           {data.segments.map((s) => (
@@ -156,9 +171,11 @@ export default function SessionTranscript() {
               <Text style={[styles.translation, styles.ltr]} selectable>
                 {s.translations[DEFAULT_TARGET] ?? "—"}
               </Text>
-              <Text style={styles.original} selectable>
-                {s.original}
-              </Text>
+              {s.original !== s.translations[DEFAULT_TARGET] && (
+                <Text style={[styles.original, sourceRtl ? styles.rtl : styles.ltr]} selectable>
+                  {s.original}
+                </Text>
+              )}
             </View>
           ))}
           <Button title={t("history.deleteSession")} icon="trash-outline" variant="danger" onPress={remove} style={{ marginTop: spacing.lg }} />
@@ -168,31 +185,12 @@ export default function SessionTranscript() {
   );
 }
 
-function SummaryList({ title, items, bullet = "•" }: { title: string; items: string[]; bullet?: string }) {
-  if (!items.length) return null;
-  return (
-    <View style={{ gap: 6 }}>
-      <Text style={styles.listTitle}>{title}</Text>
-      {items.map((item, i) => (
-        <Text key={i} style={[styles.body, styles.ltr]}>
-          {bullet} {item}
-        </Text>
-      ))}
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   title: { color: colors.text, fontSize: 22, fontWeight: "800" },
   meta: { color: colors.textMuted, fontSize: 13 },
-  summary: { borderColor: colors.primary },
-  summaryHead: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-  summaryLabel: { color: colors.primary, fontSize: 13, fontWeight: "700", letterSpacing: 0.5, textTransform: "uppercase" },
-  listTitle: { color: colors.text, fontSize: 15, fontWeight: "700", marginTop: spacing.xs },
-  body: { color: colors.text, fontSize: 15, lineHeight: 23 },
-  note: { color: colors.textDim, fontSize: 12 },
   ltr: { writingDirection: "ltr", textAlign: "left" },
+  rtl: { writingDirection: "rtl", textAlign: "right" },
   segment: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.lg, gap: 6 },
   translation: { color: colors.text, fontSize: 17, lineHeight: 25 },
-  original: { color: colors.textMuted, fontSize: 15, lineHeight: 24, writingDirection: "rtl", textAlign: "right" },
-});
+  original: { color: colors.textMuted, fontSize: 15, lineHeight: 24 },
+}));

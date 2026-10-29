@@ -16,7 +16,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
-  userInterfaceStyle: "dark",
+  // "automatic" so the in-app "Same as device" theme can follow the system setting.
+  userInterfaceStyle: "automatic",
   backgroundColor: BG,
   ios: {
     bundleIdentifier: "com.livetranslate.app",

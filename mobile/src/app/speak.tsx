@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Redirect, router } from "expo-router";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
 import type { Socket } from "socket.io-client";
 import { useAuth } from "@/auth/AuthProvider";
 import { CaptionFeed } from "@/components/CaptionFeed";
@@ -26,6 +26,7 @@ import {
   DEFAULT_SOURCE,
   DEFAULT_TARGET,
   LANGUAGES,
+  SOURCE_LANGUAGES,
   TRANSLATION_MODES,
   type ArabicDialect,
   type TranslationMode,
@@ -36,7 +37,7 @@ import { useI18n } from "@/i18n";
 import { formatDuration } from "@/lib/format";
 import { createSocket, emitWithAck } from "@/lib/socket";
 import { storage } from "@/lib/storage";
-import { colors, radius, spacing } from "@/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 const PARTIAL_THROTTLE_MS = 100;
 const KEEP_AWAKE_TAG = "speak";
@@ -44,11 +45,15 @@ const PREFS_KEY = "lt.speakerPrefs";
 const PIN_RE = /^\d{4,8}$/;
 
 type Phase = "setup" | "starting" | "live" | "stopping";
+type SpeakerPrefs = { sourceLang?: string; dialect?: ArabicDialect; mode?: TranslationMode };
 
 export default function Speak() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { t } = useI18n();
   const { user, token, ready } = useAuth();
-  const source = LANGUAGES[DEFAULT_SOURCE];
+  const [sourceLang, setSourceLang] = useState(DEFAULT_SOURCE);
+  const source = LANGUAGES[sourceLang] ?? LANGUAGES[DEFAULT_SOURCE];
   const preview = LANGUAGES[DEFAULT_TARGET];
 
   const socket = useMemo<Socket | null>(() => (token ? createSocket(token) : null), [token]);
@@ -59,9 +64,10 @@ export default function Speak() {
   const [dialect, setDialect] = useState<ArabicDialect>(DEFAULT_DIALECT);
   const [mode, setMode] = useState<TranslationMode>("live");
   const [isPrivate, setIsPrivate] = useState(false);
+  const [allowRevisit, setAllowRevisit] = useState(true);
   const [pin, setPin] = useState("");
   const [livePin, setLivePin] = useState<string | null>(null);
-  const [picker, setPicker] = useState<"dialect" | "mode" | null>(null);
+  const [picker, setPicker] = useState<"language" | "dialect" | "mode" | null>(null);
   const [listeners, setListeners] = useState(0);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -88,15 +94,15 @@ export default function Speak() {
 
   const { lines, reset } = useCaptions(socket, preview.code);
 
-  // Remember the speaker's dialect and translation mode between sessions.
+  // Remember the speaker's language, dialect and translation mode between sessions (Arabic until they pick another).
   useEffect(() => {
-    storage.getJSON<{ dialect?: ArabicDialect; mode?: TranslationMode }>(PREFS_KEY, {}).then((p) => {
+    storage.getJSON<SpeakerPrefs>(PREFS_KEY, {}).then((p) => {
+      if (p.sourceLang && SOURCE_LANGUAGES.includes(p.sourceLang)) setSourceLang(p.sourceLang);
       if (p.dialect && ARABIC_DIALECTS.includes(p.dialect)) setDialect(p.dialect);
       if (p.mode && TRANSLATION_MODES.includes(p.mode)) setMode(p.mode);
     });
   }, []);
-  const savePrefs = (patch: { dialect?: ArabicDialect; mode?: TranslationMode }) =>
-    storage.setJSON(PREFS_KEY, { dialect, mode, ...patch });
+  const savePrefs = (patch: SpeakerPrefs) => storage.setJSON(PREFS_KEY, { sourceLang, dialect, mode, ...patch });
 
   /* ------------------------------- streaming ------------------------------- */
   const flushPartial = useCallback(() => {
@@ -133,7 +139,11 @@ export default function Speak() {
     [socket],
   );
 
-  const capture = useSpeechCapture({ locale: dialect, onPartial, onFinal });
+  // Arabic uses the chosen dialect's recognizer; other languages use their standard locale.
+  const capture = useSpeechCapture({ locale: source.code === "ar" ? dialect : source.ttsLocale, onPartial, onFinal });
+  // The generic "not supported" message talks about Arabic dialects, so use a different one for other languages.
+  const captureError =
+    capture.error === "speech.languageNotSupported" && source.code !== "ar" ? "speech.languageNotSupportedOther" : capture.error;
 
   /* ------------------------------- controls -------------------------------- */
   const endLocal = useCallback(() => {
@@ -207,6 +217,7 @@ export default function Speak() {
         title: title.trim() || null,
         pin: sessionPin,
         translationMode: mode,
+        allowRevisit,
       });
       if (!res.ok) {
         if (res.error === "email_unverified") return router.replace({ pathname: "/verify-email", params: { next: "/speak" } });
@@ -286,7 +297,7 @@ export default function Speak() {
     return (
       <Screen scroll header={header}>
         {notice && <Banner tone="warning" text={notice} />}
-        {capture.error && <Banner tone="error" text={t(capture.error)} />}
+        {captureError && <Banner tone="error" text={t(captureError)} />}
         {!capture.supported && <Banner tone="warning" text={t(isExpoGo ? "speech.expoGo" : "speak.unsupported")} />}
         {!connected && <Banner tone="info" icon="cloud-offline-outline" text={t("speak.connecting")} />}
 
@@ -301,12 +312,21 @@ export default function Speak() {
             maxLength={120}
           />
           <SelectRow
-            icon="mic-outline"
-            label={t("speak.dialect")}
-            hint={t("speak.dialectHint")}
-            value={t(`dialect.${dialect}`)}
-            onPress={() => setPicker("dialect")}
+            icon="language-outline"
+            label={t("speak.language")}
+            hint={t("speak.languageHint")}
+            value={source.nativeName}
+            onPress={() => setPicker("language")}
           />
+          {source.code === "ar" && (
+            <SelectRow
+              icon="mic-outline"
+              label={t("speak.dialect")}
+              hint={t("speak.dialectHint")}
+              value={t(`dialect.${dialect}`)}
+              onPress={() => setPicker("dialect")}
+            />
+          )}
           <View style={styles.infoRow}>
             <Ionicons name="eye-outline" size={20} color={colors.textMuted} />
             <Text style={styles.infoLabel}>{t("speak.theyRead")}</Text>
@@ -325,6 +345,7 @@ export default function Speak() {
             value={isPrivate}
             onValueChange={(v) => {
               setIsPrivate(v);
+              setAllowRevisit(!v); // private sessions default to not revisitable
               if (v && !pin) setPin(String(Math.floor(1000 + Math.random() * 9000)));
             }}
           />
@@ -348,6 +369,12 @@ export default function Speak() {
               />
             </View>
           )}
+          <SwitchRow
+            label={t("speak.allowRevisit")}
+            hint={t("speak.allowRevisitHint")}
+            value={allowRevisit}
+            onValueChange={setAllowRevisit}
+          />
         </Card>
 
         <Button
@@ -361,6 +388,17 @@ export default function Speak() {
         />
         <Text style={styles.tip}>{t("speak.tip")}</Text>
 
+        <OptionSheet
+          visible={picker === "language"}
+          onClose={() => setPicker(null)}
+          title={t("speak.language")}
+          selected={sourceLang}
+          options={SOURCE_LANGUAGES.map((c) => ({ value: c, label: LANGUAGES[c].nativeName, description: LANGUAGES[c].name }))}
+          onSelect={(c) => {
+            setSourceLang(c);
+            savePrefs({ sourceLang: c });
+          }}
+        />
         <OptionSheet
           visible={picker === "dialect"}
           onClose={() => setPicker(null)}
@@ -412,13 +450,14 @@ export default function Speak() {
         </ScrollView>
       )}
       {notice && <Banner tone="warning" text={notice} />}
-      {capture.error && <Banner tone="error" text={t(capture.error)} />}
+      {captureError && <Banner tone="error" text={t(captureError)} />}
       {!connected && <Banner tone="warning" icon="cloud-offline-outline" text={t("speak.connectionLost")} />}
 
       <View style={styles.feed}>
         <CaptionFeed
           lines={lines}
           mode="speaker"
+          originalRtl={source.rtl}
           empty={
             <View style={{ alignItems: "center", gap: spacing.sm }}>
               <Ionicons name="mic" size={36} color={colors.textDim} />
@@ -458,7 +497,7 @@ export default function Speak() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   infoRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 44 },
   infoLabel: { color: colors.text, fontSize: 15, fontWeight: "600", flex: 1 },
   infoValue: { color: colors.textMuted, fontSize: 15 },
@@ -500,4 +539,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   micPulse: { position: "absolute", width: 68, height: 68, borderRadius: 34, backgroundColor: colors.live },
-});
+}));

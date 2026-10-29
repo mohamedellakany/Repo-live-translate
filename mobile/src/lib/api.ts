@@ -38,10 +38,33 @@ export interface SessionInfo {
   isPrivate: boolean;
   translationMode: string;
   charsTranslated: number;
+  /** Listeners who attended can reopen this session from "My sessions". */
+  allowRevisit: boolean;
+  /** The server is writing this session's AI summary right now (e.g. automatically after it ended). */
+  summaryPending?: boolean;
 }
 export interface SessionSummary extends SessionInfo {
   segmentCount: number;
   hasSummary: boolean;
+}
+/** A session in a listener's library ("My sessions"). */
+export interface LibraryItem {
+  id: string;
+  title: string | null;
+  sourceLang: string;
+  startedAt: string;
+  endedAt: string | null;
+  /** The language this listener read the session in. */
+  lang: string;
+  speaker: { username: string; displayName: string };
+  segmentCount: number;
+  hasSummary: boolean;
+}
+export interface LibrarySegment {
+  seq: number;
+  original: string;
+  translation: string | null;
+  translationLang: string;
 }
 export interface TranscriptSegment {
   seq: number;
@@ -125,5 +148,14 @@ export const api = {
   session: (id: string) =>
     request<{ session: SessionInfo & { summary: Summary | null }; segments: TranscriptSegment[] }>("GET", `/api/sessions/${enc(id)}`),
   summarize: (id: string, lang: string) => request<{ summary: Summary }>("POST", `/api/sessions/${enc(id)}/summary`, { lang }),
+  updateSession: (id: string, patch: { allowRevisit: boolean }) =>
+    request<{ session: SessionInfo }>("PATCH", `/api/sessions/${enc(id)}`, patch),
   deleteSession: (id: string) => request<void>("DELETE", `/api/sessions/${enc(id)}`),
+
+  library: () => request<{ sessions: LibraryItem[] }>("GET", "/api/library"),
+  librarySession: (id: string) =>
+    request<{ session: LibraryItem & { summary: Summary | null }; segments: LibrarySegment[] }>("GET", `/api/library/${enc(id)}`),
+  /** Add a session followed before signing in. */
+  claimLibrarySession: (sessionId: string, lang: string) => request<void>("POST", "/api/library", { sessionId, lang }),
+  removeFromLibrary: (id: string) => request<void>("DELETE", `/api/library/${enc(id)}`),
 };

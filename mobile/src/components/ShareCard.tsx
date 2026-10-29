@@ -1,13 +1,14 @@
 import * as Clipboard from "expo-clipboard";
 import { useState } from "react";
-import { Platform, Share, StyleSheet, Text, View } from "react-native";
+import { Platform, Share, Text, View } from "react-native";
 import QRCode from "react-native-qrcode-svg";
 import { useI18n } from "@/i18n";
 import { listenUrl } from "@/lib/config";
-import { colors, radius, spacing } from "@/theme";
+import { makeStyles, radius, spacing } from "@/theme";
 import { Button, Card } from "./ui";
 
 export function ShareCard({ username, displayName, pin }: { username: string; displayName: string; pin?: string | null }) {
+  const styles = useStyles();
   const { t } = useI18n();
   const [copied, setCopied] = useState<"id" | "link" | null>(null);
   const url = listenUrl(username);
@@ -53,11 +54,11 @@ export function ShareCard({ username, displayName, pin }: { username: string; di
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   label: { color: colors.textMuted, fontSize: 12, fontWeight: "700", letterSpacing: 1.2 },
   id: { color: colors.text, fontSize: 28, fontWeight: "700", writingDirection: "ltr" },
   qr: { padding: spacing.md, backgroundColor: "#fff", borderRadius: radius.md },
   pin: { color: colors.warning, fontSize: 15, fontWeight: "700" },
   hint: { color: colors.textMuted, fontSize: 13, textAlign: "center" },
   row: { flexDirection: "row", gap: spacing.sm, alignSelf: "stretch" },
-});
+}));

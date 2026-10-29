@@ -74,6 +74,19 @@ const MIGRATIONS: string[] = [
   ALTER TABLE sessions ADD COLUMN chars_translated INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE sessions ADD COLUMN summary TEXT;
   `,
+  // 3: listener libraries. Signed-in listeners keep the sessions they attended, if the speaker allows revisiting.
+  `
+  ALTER TABLE sessions ADD COLUMN allow_revisit INTEGER NOT NULL DEFAULT 1;
+  UPDATE sessions SET allow_revisit = 0 WHERE is_private = 1;
+  CREATE TABLE session_listeners (
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    lang       TEXT NOT NULL,
+    joined_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (session_id, user_id)
+  );
+  CREATE INDEX idx_session_listeners_user ON session_listeners(user_id, joined_at DESC);
+  `,
 ];
 
 function migrate() {
@@ -131,6 +144,20 @@ export interface SessionRow {
   translation_mode: TranslationMode;
   chars_translated: number;
   summary: string | null;
+  allow_revisit: number;
+}
+/** A session in a listener's library, with the speaker's public info. */
+export interface LibraryRow {
+  id: string;
+  title: string | null;
+  source_lang: string;
+  started_at: string;
+  ended_at: string | null;
+  summary: string | null;
+  lang: string;
+  username: string;
+  display_name: string;
+  segment_count: number;
 }
 export interface Segment {
   seq: number;
@@ -168,8 +195,9 @@ const q = {
   deleteUser: db.prepare("DELETE FROM users WHERE id = ?"),
 
   insertSession: db.prepare(
-    "INSERT INTO sessions (id, speaker_id, title, source_lang, is_private, translation_mode) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO sessions (id, speaker_id, title, source_lang, is_private, translation_mode, allow_revisit) VALUES (?, ?, ?, ?, ?, ?, ?)",
   ),
+  setAllowRevisit: db.prepare("UPDATE sessions SET allow_revisit = ? WHERE id = ? AND speaker_id = ?"),
   endSession: db.prepare(
     `UPDATE sessions SET ended_at = datetime('now'), peak_listeners = MAX(peak_listeners, ?),
        chars_translated = chars_translated + ? WHERE id = ? AND ended_at IS NULL`,
@@ -188,6 +216,22 @@ const q = {
   addTranslation: db.prepare(
     "UPDATE segments SET translations = json_set(translations, '$.' || ?, ?) WHERE session_id = ? AND seq = ?",
   ),
+  upsertListener: db.prepare(`
+    INSERT INTO session_listeners (session_id, user_id, lang) VALUES (?, ?, ?)
+    ON CONFLICT(session_id, user_id) DO UPDATE SET lang = excluded.lang`),
+  removeListener: db.prepare("DELETE FROM session_listeners WHERE session_id = ? AND user_id = ?"),
+  // Only finished sessions whose speaker allows revisiting are visible to listeners.
+  libraryForUser: db.prepare(`
+    SELECT s.id, s.title, s.source_lang, s.started_at, s.ended_at, s.summary, l.lang, u.username, u.display_name,
+      (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count
+    FROM session_listeners l JOIN sessions s ON s.id = l.session_id JOIN users u ON u.id = s.speaker_id
+    WHERE l.user_id = ? AND s.allow_revisit = 1 AND s.ended_at IS NOT NULL
+    ORDER BY s.started_at DESC LIMIT ? OFFSET ?`),
+  libraryEntry: db.prepare(`
+    SELECT s.id, s.title, s.source_lang, s.started_at, s.ended_at, s.summary, l.lang, u.username, u.display_name,
+      (SELECT COUNT(*) FROM segments g WHERE g.session_id = s.id) AS segment_count
+    FROM session_listeners l JOIN sessions s ON s.id = l.session_id JOIN users u ON u.id = s.speaker_id
+    WHERE l.user_id = ? AND s.id = ? AND s.allow_revisit = 1 AND s.ended_at IS NOT NULL`),
   segmentsForSession: db.prepare("SELECT * FROM segments WHERE session_id = ? ORDER BY seq ASC"),
   recentSegments: db.prepare(
     "SELECT * FROM (SELECT * FROM segments WHERE session_id = ? ORDER BY seq DESC LIMIT ?) ORDER BY seq ASC",
@@ -261,9 +305,14 @@ const rowToSegment = (r: any): Segment => ({
 });
 
 export const sessions = {
-  create(speakerId: string, sourceLang: string, title: string | null, opts: { isPrivate: boolean; mode: TranslationMode }) {
+  create(
+    speakerId: string,
+    sourceLang: string,
+    title: string | null,
+    opts: { isPrivate: boolean; mode: TranslationMode; allowRevisit: boolean },
+  ) {
     const id = randomUUID();
-    q.insertSession.run(id, speakerId, title, sourceLang, opts.isPrivate ? 1 : 0, opts.mode);
+    q.insertSession.run(id, speakerId, title, sourceLang, opts.isPrivate ? 1 : 0, opts.mode, opts.allowRevisit ? 1 : 0);
     return q.sessionById.get(id) as unknown as SessionRow;
   },
   end: (id: string, peakListeners: number, chars: number) => q.endSession.run(peakListeners, chars, id),
@@ -281,4 +330,14 @@ export const sessions = {
     q.addTranslation.run(lang, text, sessionId, seq),
   segments: (sessionId: string) => q.segmentsForSession.all(sessionId).map(rowToSegment),
   recentSegments: (sessionId: string, limit: number) => q.recentSegments.all(sessionId, limit).map(rowToSegment),
+  setAllowRevisit: (id: string, speakerId: string, allow: boolean) => q.setAllowRevisit.run(allow ? 1 : 0, id, speakerId).changes > 0,
+};
+
+/* --------------------------- listener libraries --------------------------- */
+export const library = {
+  /** Remember that a signed-in listener attended a session (in the language they read). */
+  add: (sessionId: string, userId: string, lang: string) => q.upsertListener.run(sessionId, userId, lang),
+  remove: (sessionId: string, userId: string) => q.removeListener.run(sessionId, userId).changes > 0,
+  list: (userId: string, limit = 50, offset = 0) => q.libraryForUser.all(userId, limit, offset) as unknown as LibraryRow[],
+  entry: (userId: string, sessionId: string) => q.libraryEntry.get(userId, sessionId) as unknown as LibraryRow | undefined,
 };

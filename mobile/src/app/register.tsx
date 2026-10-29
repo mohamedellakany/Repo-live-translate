@@ -1,17 +1,18 @@
 import { Link, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text } from "react-native";
+import { Text } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { GoogleAuthSection, LegalNotice } from "@/components/AuthExtras";
 import { AppHeader, Banner, Button, Screen, TextField } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { USERNAME_RE } from "@/lib/format";
 import { routeAfterAuth } from "@/lib/postAuth";
-import { colors, spacing } from "@/theme";
+import { makeStyles, spacing } from "@/theme";
 
 
 
 export default function Register() {
+  const styles = useStyles();
   const { t } = useI18n();
   const { signUp } = useAuth();
   const { next } = useLocalSearchParams<{ next?: string }>();
@@ -90,8 +91,8 @@ export default function Register() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   title: { color: colors.text, fontSize: 28, fontWeight: "800", marginTop: spacing.md },
   subtitle: { color: colors.textMuted, fontSize: 15, marginTop: -spacing.sm, lineHeight: 22 },
   link: { color: colors.primary, textAlign: "center", fontSize: 15, fontWeight: "600", paddingBottom: spacing.lg },
-});
+}));

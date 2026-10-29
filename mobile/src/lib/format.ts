@@ -14,6 +14,12 @@ export const parseDbDate = (s: string) => new Date(s.includes("T") ? s : `${s.re
 export const formatDateTime = (s: string) =>
   parseDbDate(s).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 
+/** Fallback name for an untitled session, e.g. "Tuesday, October 28, 2026". */
+export const formatSessionDate = (s: string, locale?: string) =>
+  parseDbDate(s).toLocaleDateString(locale, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+
+export const formatTime = (s: string, locale?: string) => parseDbDate(s).toLocaleTimeString(locale, { timeStyle: "short" });
+
 export const normalizeUsername = (s: string) => s.trim().replace(/^@/, "").toLowerCase();
 
 export const USERNAME_RE = /^[a-z0-9_]{3,20}$/;

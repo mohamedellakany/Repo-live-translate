@@ -5,7 +5,7 @@ import { features } from "../config.js";
 import { sessions, type SessionRow } from "../db.js";
 import { DEFAULT_TARGET, isTargetLanguage } from "../languages.js";
 import { liveSessionId } from "../realtime.js";
-import { summarizeTranscript } from "../summary.js";
+import { isSummaryPending, summarizeSession } from "../summary.js";
 
 export const sessionsRouter = Router();
 sessionsRouter.use(requireAuth);
@@ -20,7 +20,9 @@ const serialize = (s: SessionRow) => ({
   isPrivate: !!s.is_private,
   translationMode: s.translation_mode,
   charsTranslated: s.chars_translated,
+  allowRevisit: !!s.allow_revisit,
   summary: s.summary ? JSON.parse(s.summary) : null,
+  summaryPending: isSummaryPending(s.id),
 });
 
 /** The signed-in speaker's past and current sessions. */
@@ -28,7 +30,13 @@ sessionsRouter.get("/", (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 100);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
   const rows = sessions.listForSpeaker(req.user!.id, limit, offset);
-  res.json({ sessions: rows.map((s) => ({ ...serialize(s), summary: undefined, hasSummary: !!s.summary, segmentCount: Number(s.segment_count) })) });
+  res.json({
+    sessions: rows.map((s) => {
+      const { summary, ...rest } = serialize(s);
+      // Untitled sessions fall back to the AI summary's title once one exists.
+      return { ...rest, title: rest.title ?? summary?.title ?? null, hasSummary: !!summary, segmentCount: Number(s.segment_count) };
+    }),
+  });
 });
 
 sessionsRouter.get("/:id", (req, res) => {
@@ -44,17 +52,26 @@ sessionsRouter.post("/:id/summary", summaryLimiter, async (req, res) => {
   if (!features.summaries) return res.status(503).json({ error: "AI summaries aren't enabled on this server" });
   const s = sessions.byId(String(req.params.id));
   if (!s || s.speaker_id !== req.user!.id) return res.status(404).json({ error: "Session not found" });
-  const segments = sessions.segments(s.id);
-  if (segments.length === 0) return res.status(400).json({ error: "There's nothing to summarize in this session" });
+  if (sessions.segments(s.id).length === 0) return res.status(400).json({ error: "There's nothing to summarize in this session" });
   const lang = typeof req.body?.lang === "string" && isTargetLanguage(req.body.lang) ? req.body.lang : DEFAULT_TARGET;
   try {
-    const summary = await summarizeTranscript(segments, s.source_lang, lang);
-    sessions.saveSummary(s.id, summary);
+    // If the automatic summary is still being written, this waits for it instead of starting another request.
+    const summary = await summarizeSession(s.id, lang);
+    if (!summary) return res.status(404).json({ error: "Session not found" });
     res.json({ summary });
   } catch (err) {
     console.error("[summary]", err);
     res.status(502).json({ error: (err as Error).message || "Couldn't generate the summary" });
   }
+});
+
+/** Let listeners who attended reopen this session from their library (or stop them). */
+sessionsRouter.patch("/:id", (req, res) => {
+  if (typeof req.body?.allowRevisit !== "boolean") return res.status(400).json({ error: "Invalid request" });
+  if (!sessions.setAllowRevisit(req.params.id, req.user!.id, req.body.allowRevisit)) {
+    return res.status(404).json({ error: "Session not found" });
+  }
+  res.json({ session: serialize(sessions.byId(req.params.id)!) });
 });
 
 sessionsRouter.delete("/:id", (req, res) => {

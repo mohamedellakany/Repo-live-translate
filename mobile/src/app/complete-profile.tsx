@@ -1,16 +1,17 @@
 import { Redirect, useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text } from "react-native";
+import { Text } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { LegalNotice } from "@/components/AuthExtras";
 import { AppHeader, Banner, Button, Screen, TextField } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { USERNAME_RE } from "@/lib/format";
 import { routeAfterAuth } from "@/lib/postAuth";
-import { colors, spacing } from "@/theme";
+import { makeStyles, spacing } from "@/theme";
 
 /** After a first Google sign-in: pick a speaker ID, then verify the email with a code. */
 export default function CompleteProfile() {
+  const styles = useStyles();
   const { t } = useI18n();
   const { completeGoogleSignUp } = useAuth();
   const params = useLocalSearchParams<{ signupToken: string; email: string; displayName: string; suggestedUsername: string; next?: string }>();
@@ -62,7 +63,7 @@ export default function CompleteProfile() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   title: { color: colors.text, fontSize: 28, fontWeight: "800", marginTop: spacing.md },
   subtitle: { color: colors.textMuted, fontSize: 15, marginTop: -spacing.sm, lineHeight: 22 },
-});
+}));

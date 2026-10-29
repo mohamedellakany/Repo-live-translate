@@ -2,14 +2,15 @@ import { timingSafeEqual } from "node:crypto";
 import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 import { userFromToken } from "./auth.js";
-import { sessions, users, type TranslationMode, type UserRow } from "./db.js";
-import { DEFAULT_TARGET, isSourceLanguage, isTargetLanguage, TARGET_LANGUAGES } from "./languages.js";
+import { library, sessions, users, type TranslationMode, type UserRow } from "./db.js";
+import { DEFAULT_SOURCE, DEFAULT_TARGET, isSourceLanguage, isTargetLanguage, TARGET_LANGUAGES } from "./languages.js";
+import { summarizeEndedSession } from "./summary.js";
 import { describeTranslationError, translator } from "./translation/index.js";
 
 /* ============================================================================
  * Wire protocol
  *
- * Speaker -> server   speaker:start {sourceLang, title?, pin?, translationMode?, resumeSessionId?} (ack)
+ * Speaker -> server   speaker:start {sourceLang, title?, pin?, translationMode?, allowRevisit?, resumeSessionId?} (ack)
  *                     speaker:partial {seq, text}      interim recognition result
  *                     speaker:final {seq, text}        finalized utterance
  *                     speaker:stop (ack)
@@ -17,7 +18,7 @@ import { describeTranslationError, translator } from "./translation/index.js";
  *                     listener:leave
  * Server -> clients   caption:source {seq, text, isFinal}
  *                     caption:translation {seq, lang, text, isFinal, error?}
- *                     speaker:status {live, reconnecting, sessionId, title, private}
+ *                     speaker:status {live, reconnecting, sessionId, title, sourceLang, private, revisit}
  *                     room:stats {listeners}
  *                     listener:pin_required             (a private session started; re-join with a PIN)
  *                     speaker:replaced                  (sent to an old speaker device)
@@ -61,6 +62,8 @@ interface Room {
   sourceLang: string;
   mode: TranslationMode;
   pin: string | null;
+  /** Signed-in listeners may reopen this session later from their library. */
+  allowRevisit: boolean;
   speakerSocketId: string | null;
   reconnectTimer: NodeJS.Timeout | null;
   segments: Map<number, SegmentState>;
@@ -68,6 +71,8 @@ interface Room {
   recentFinals: string[];
   peakListeners: number;
   meter: { chars: number };
+  /** Final sentences still being translated and saved; the session summary waits for them. */
+  savingSegments: Set<Promise<void>>;
 }
 
 const rooms = new Map<string, Room>();
@@ -84,9 +89,10 @@ function getOrCreateRoom(user: UserRow): Room {
       displayName: user.display_name,
       sessionId: null,
       title: null,
-      sourceLang: "ar",
+      sourceLang: DEFAULT_SOURCE,
       mode: "live",
       pin: null,
+      allowRevisit: true,
       speakerSocketId: null,
       reconnectTimer: null,
       segments: new Map(),
@@ -94,6 +100,7 @@ function getOrCreateRoom(user: UserRow): Room {
       recentFinals: [],
       peakListeners: 0,
       meter: { chars: 0 },
+      savingSegments: new Set(),
     };
     rooms.set(user.id, room);
   }
@@ -102,13 +109,16 @@ function getOrCreateRoom(user: UserRow): Room {
 
 const listenerCount = (room: Room) => io.sockets.adapter.rooms.get(audienceRoom(room.speakerId))?.size ?? 0;
 
-/** Target languages that currently need translating: the default plus any language a listener picked. */
+/**
+ * Target languages that currently need translating: the default plus any language a listener picked.
+ * A listener reading the speaker's own language is included too; the translator passes that text through unchanged.
+ */
 function activeTargetLangs(room: Room): string[] {
   const langs = new Set([DEFAULT_TARGET]);
   for (const lang of TARGET_LANGUAGES) {
     if ((io.sockets.adapter.rooms.get(langRoom(room.speakerId, lang))?.size ?? 0) > 0) langs.add(lang);
   }
-  return [...langs].filter((l) => l !== room.sourceLang);
+  return [...langs];
 }
 
 function statusPayload(room: Room) {
@@ -119,6 +129,7 @@ function statusPayload(room: Room) {
     title: room.title,
     sourceLang: room.sourceLang,
     private: room.sessionId !== null && room.pin !== null,
+    revisit: room.sessionId !== null && room.allowRevisit,
   };
 }
 
@@ -140,11 +151,19 @@ function leaveListenerRooms(socket: Socket, speakerId: string) {
   for (const lang of TARGET_LANGUAGES) socket.leave(langRoom(speakerId, lang));
 }
 
+/** Add the live session to a signed-in listener's library (the speaker controls whether they can reopen it). */
+function recordAttendance(socket: Socket, room: Room) {
+  const user: UserRow | undefined = socket.data.user;
+  if (!user || !room.sessionId || user.id === room.speakerId) return;
+  library.add(room.sessionId, user.id, socket.data.listenLang ?? DEFAULT_TARGET);
+}
+
 function endSession(room: Room) {
   if (room.reconnectTimer) clearTimeout(room.reconnectTimer);
   room.reconnectTimer = null;
   if (!room.sessionId) return;
   sessions.end(room.sessionId, room.peakListeners, room.meter.chars);
+  summarizeEndedSession(room.sessionId, [...room.savingSegments]);
   room.sessionId = null;
   room.title = null;
   room.pin = null;
@@ -269,7 +288,7 @@ async function backfillHistory(socket: Socket, room: Room, sessionId: string, it
 /* ------------------------------ handlers --------------------------------- */
 
 const startSchema = z.object({
-  sourceLang: z.string().default("ar"),
+  sourceLang: z.string().default(DEFAULT_SOURCE),
   title: z.string().trim().max(120).optional().nullable(),
   pin: z
     .string()
@@ -279,6 +298,8 @@ const startSchema = z.object({
     .nullable()
     .or(z.literal("").transform(() => null)),
   translationMode: z.enum(["live", "balanced", "sentences"]).default("live"),
+  // Defaults to on for public sessions and off for private (PIN) ones.
+  allowRevisit: z.boolean().optional(),
   resumeSessionId: z.string().optional().nullable(),
 });
 const textSchema = z.object({ seq: z.number().int().min(0), text: z.string().max(MAX_TEXT) });
@@ -311,7 +332,7 @@ function registerSpeakerHandlers(socket: Socket) {
 
     const parsed = startSchema.safeParse(raw ?? {});
     if (!parsed.success || !isSourceLanguage(parsed.data.sourceLang)) return ack({ ok: false, error: "invalid_request" });
-    const { sourceLang, title, pin, translationMode, resumeSessionId } = parsed.data;
+    const { sourceLang, title, pin, translationMode, allowRevisit, resumeSessionId } = parsed.data;
     const room = getOrCreateRoom(user);
     room.displayName = user.display_name;
 
@@ -327,18 +348,27 @@ function registerSpeakerHandlers(socket: Socket) {
     const resuming = !!resumeSessionId && room.sessionId === resumeSessionId;
     if (!resuming) {
       endSession(room);
-      const session = sessions.create(user.id, sourceLang, title || null, { isPrivate: !!pin, mode: translationMode });
+      const revisit = allowRevisit ?? !pin;
+      const session = sessions.create(user.id, sourceLang, title || null, { isPrivate: !!pin, mode: translationMode, allowRevisit: revisit });
       room.sessionId = session.id;
       room.title = session.title;
       room.sourceLang = sourceLang;
       room.mode = translationMode;
       room.pin = pin ?? null;
+      room.allowRevisit = revisit;
     }
 
     room.speakerSocketId = socket.id;
     socket.data.speakingFor = user.id;
     socket.join([roomName(user.id), langRoom(user.id, DEFAULT_TARGET)]);
     if (!resuming && room.pin) evictUnauthorized(room);
+    if (!resuming) {
+      // Listeners who were already waiting for this speaker attended too.
+      for (const id of io.sockets.adapter.rooms.get(audienceRoom(room.speakerId)) ?? []) {
+        const s = io.sockets.sockets.get(id);
+        if (s) recordAttendance(s, room);
+      }
+    }
     broadcastStatus(room);
     ack({ ok: true, resumed: resuming, sessionId: room.sessionId, listeners: listenerCount(room) });
   });
@@ -392,9 +422,10 @@ function registerSpeakerHandlers(socket: Socket) {
 
     const context = room.recentFinals.slice();
     room.recentFinals = [...room.recentFinals, clean].slice(-CONTEXT_SENTENCES);
-    void translateFinal(room, room.sessionId!, seq, clean, context).catch((err) =>
-      console.error("[final] failed to persist segment", err),
-    );
+    const saving = translateFinal(room, room.sessionId!, seq, clean, context)
+      .catch((err) => console.error("[final] failed to persist segment", err))
+      .finally(() => room.savingSegments.delete(saving));
+    room.savingSegments.add(saving);
   });
 
   socket.on("speaker:stop", (_raw, ackFn) => {
@@ -441,7 +472,9 @@ function registerListenerHandlers(socket: Socket) {
     }
 
     socket.data.listeningTo = speaker.id;
+    socket.data.listenLang = lang;
     socket.join([roomName(speaker.id), audienceRoom(speaker.id), langRoom(speaker.id, lang)]);
+    recordAttendance(socket, room);
 
     // Catch the listener up: recent finalized lines plus anything being spoken right now.
     const saved = room.sessionId ? sessions.recentSegments(room.sessionId, HISTORY_ON_JOIN) : [];

@@ -210,6 +210,64 @@ test("private sessions require the PIN and evict waiting listeners", async () =>
   await emitAck(speaker, "speaker:stop", {});
 });
 
+test("listener libraries: attended sessions can be reopened if the speaker allows it", async () => {
+  const speakerToken = await verifiedSpeaker("lecturer");
+  const readerToken = await verifiedSpeaker("reader1");
+  const guestToken = await verifiedSpeaker("reader2");
+  const get = (path: string, token: string) => call("GET", path, undefined, token);
+
+  // A signed-in reader waits before the talk starts and is recorded when it begins.
+  const reader = open(readerToken);
+  assert.equal((await emitAck(reader, "listener:join", { username: "lecturer", lang: "fr" })).ok, true);
+  const speaker = open(speakerToken);
+  const live = next(reader, "speaker:status", (d) => d.live);
+  const started = await emitAck(speaker, "speaker:start", { sourceLang: "ar", title: "Lecture 1" });
+  assert.equal((await live).revisit, true);
+  const fin = next(reader, "caption:translation", (d) => d.isFinal);
+  speaker.emit("speaker:final", { seq: 0, text: "درس اليوم" });
+  await fin;
+  await sleep(50);
+  assert.equal((await get("/api/library", readerToken)).body.sessions.length, 0, "live sessions aren't listed yet");
+  await emitAck(speaker, "speaker:stop", {});
+
+  const list = (await get("/api/library", readerToken)).body.sessions;
+  assert.equal(list.length, 1);
+  assert.equal(list[0].title, "Lecture 1");
+  assert.equal(list[0].lang, "fr");
+  assert.deepEqual(list[0].speaker, { username: "lecturer", displayName: "lecturer" });
+  const detail = await get(`/api/library/${started.sessionId}`, readerToken);
+  assert.equal(detail.body.segments[0].translation, "[fr] درس اليوم");
+  assert.equal((await get("/api/library", speakerToken)).body.sessions.length, 0, "speakers don't collect their own sessions");
+
+  // A guest listener who signs up afterwards can claim the session; other users can't see it otherwise.
+  assert.equal((await get(`/api/library/${started.sessionId}`, guestToken)).status, 404);
+  assert.equal((await post("/api/library", { sessionId: "nope" }, guestToken)).status, 404);
+  assert.equal((await post("/api/library", { sessionId: started.sessionId, lang: "en" }, guestToken)).status, 204);
+  assert.equal((await get(`/api/library/${started.sessionId}`, guestToken)).body.segments[0].translation, "[en] درس اليوم");
+  assert.equal((await call("DELETE", `/api/library/${started.sessionId}`, undefined, guestToken)).status, 204);
+  assert.equal((await get("/api/library", guestToken)).body.sessions.length, 0);
+
+  // The speaker can turn revisiting off and on again.
+  const off = await call("PATCH", `/api/sessions/${started.sessionId}`, { allowRevisit: false }, speakerToken);
+  assert.equal(off.body.session.allowRevisit, false);
+  assert.equal((await get(`/api/library/${started.sessionId}`, readerToken)).status, 404);
+  assert.equal((await call("PATCH", `/api/sessions/${started.sessionId}`, { allowRevisit: false }, readerToken)).status, 404);
+  await call("PATCH", `/api/sessions/${started.sessionId}`, { allowRevisit: true }, speakerToken);
+  assert.equal((await get("/api/library", readerToken)).body.sessions.length, 1);
+
+  // Private sessions aren't revisitable unless the speaker opts in.
+  const priv = await emitAck(speaker, "speaker:start", { sourceLang: "ar", pin: "1234" });
+  assert.equal((await emitAck(reader, "listener:join", { username: "lecturer", lang: "fr", pin: "1234" })).ok, true);
+  await emitAck(speaker, "speaker:stop", {});
+  assert.equal((await get(`/api/library/${priv.sessionId}`, readerToken)).status, 404);
+  await call("PATCH", `/api/sessions/${priv.sessionId}`, { allowRevisit: true }, speakerToken);
+  assert.equal((await get(`/api/library/${priv.sessionId}`, readerToken)).status, 200);
+
+  // When the speaker deletes a session, it disappears from listeners' libraries too.
+  assert.equal((await call("DELETE", `/api/sessions/${started.sessionId}`, undefined, speakerToken)).status, 204);
+  assert.equal((await get(`/api/library/${started.sessionId}`, readerToken)).status, 404);
+});
+
 test("'sentences' mode skips interim translations", async () => {
   const token = await verifiedSpeaker("thrifty");
   const speaker = open(token);

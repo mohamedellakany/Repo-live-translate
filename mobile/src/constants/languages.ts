@@ -24,8 +24,9 @@ export const LANGUAGES: Record<string, Language> = {
   nl: { code: "nl", name: "Dutch", nativeName: "Nederlands", ttsLocale: "nl-NL", rtl: false },
 };
 
-export const SOURCE_LANGUAGES = ["ar"];
-export const TARGET_LANGUAGES = ["en", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
+/** Languages a speaker may speak in. Arabic is the default and listed first. */
+export const SOURCE_LANGUAGES = ["ar", "en", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
+export const TARGET_LANGUAGES = ["en", "ar", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
 export const DEFAULT_SOURCE = "ar";
 export const DEFAULT_TARGET = "en";
 

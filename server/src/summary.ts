@@ -3,8 +3,8 @@ import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { config, summaryProvider } from "./config.js";
-import type { Segment } from "./db.js";
-import { LANGUAGES } from "./languages.js";
+import { sessions, type Segment } from "./db.js";
+import { DEFAULT_TARGET, LANGUAGES } from "./languages.js";
 
 export const SummarySchema = z.object({
   title: z.string().describe("A short, specific title for the session (max ~8 words)"),
@@ -39,6 +39,39 @@ export async function summarizeTranscript(segments: Segment[], sourceLang: strin
   return { ...content, language: outputLang, createdAt: new Date().toISOString() };
 }
 
+// ---- Stored sessions (on request and automatically when a session ends) ----
+
+const inFlight = new Map<string, Promise<Summary | null>>();
+
+/** True while a summary for this session is being written. */
+export const isSummaryPending = (sessionId: string) => inFlight.has(sessionId);
+
+/**
+ * Summarize a stored session and save the result. Concurrent calls for the same session share one request.
+ * `waitFor` lets the last sentences finish translating first. Resolves to null if the session is gone or empty.
+ */
+export function summarizeSession(sessionId: string, lang: string, waitFor: Promise<unknown>[] = []): Promise<Summary | null> {
+  const running = inFlight.get(sessionId);
+  if (running) return running;
+  const job = (async () => {
+    await Promise.allSettled(waitFor);
+    const session = sessions.byId(sessionId); // may have been deleted meanwhile
+    const segments = session ? sessions.segments(sessionId) : [];
+    if (!session || segments.length === 0) return null;
+    const summary = await summarizeTranscript(segments, session.source_lang, lang);
+    sessions.saveSummary(sessionId, summary);
+    return summary;
+  })().finally(() => inFlight.delete(sessionId));
+  inFlight.set(sessionId, job);
+  return job;
+}
+
+/** Called when a live session ends: write its summary in the background so it's ready in History. */
+export function summarizeEndedSession(sessionId: string, pendingSegments: Promise<unknown>[]) {
+  if (!summaryProvider || !config.AUTO_SUMMARY) return;
+  summarizeSession(sessionId, DEFAULT_TARGET, pendingSegments).catch((err) => console.error("[summary:auto]", err));
+}
+
 // ---- Google Gemini (Interactions API with JSON-schema structured output) ----
 
 let gemini: GoogleGenAI | null = null;
@@ -51,6 +84,8 @@ async function withGemini(prompt: string): Promise<SummaryContent> {
     system_instruction: SYSTEM,
     input: prompt,
     response_format: { type: "text", mime_type: "application/json", schema: summaryJsonSchema },
+    // Summarizing doesn't need deep reasoning; the default (high) thinking level is the main source of latency.
+    generation_config: { thinking_level: "low" },
     // Transcripts are private: don't keep them on Google's side after the summary is returned.
     store: false,
   });
@@ -80,7 +115,7 @@ async function withClaude(prompt: string): Promise<SummaryContent> {
     // If a safety classifier declines, the API retries on a fallback model.
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
-    output_config: { effort: "medium", format: betaZodOutputFormat(SummarySchema) },
+    output_config: { effort: "low", format: betaZodOutputFormat(SummarySchema) },
     system: SYSTEM,
     messages: [{ role: "user", content: prompt }],
   });

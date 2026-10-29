@@ -1,11 +1,12 @@
 import { Redirect, router } from "expo-router";
 import { useState } from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
+import { Platform, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
+import { ThemeSheet } from "@/components/ThemeSheet";
 import { AppHeader, Banner, Button, Card, OptionSheet, Screen, SelectRow, Sheet, TextField } from "@/components/ui";
 import { useI18n, type UiLang } from "@/i18n";
 import { API_URL } from "@/lib/config";
-import { colors, spacing } from "@/theme";
+import { makeStyles, spacing, useTheme } from "@/theme";
 
 const UI_LANGS: { value: UiLang; label: string }[] = [
   { value: "en", label: "English" },
@@ -13,6 +14,8 @@ const UI_LANGS: { value: UiLang; label: string }[] = [
 ];
 
 export default function Account() {
+  const { colors, preference } = useTheme();
+  const styles = useStyles();
   const { t, lang, setLang, needsRestart } = useI18n();
   const { user, ready, signOut, updateDisplayName, deleteAccount } = useAuth();
   // null = untouched, so the field shows the current name even if the account loads after first render.
@@ -20,6 +23,7 @@ export default function Account() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ tone: "info" | "error"; text: string } | null>(null);
   const [langPicker, setLangPicker] = useState(false);
+  const [themePicker, setThemePicker] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmValue, setConfirmValue] = useState("");
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -90,6 +94,12 @@ export default function Account() {
           onPress={() => setLangPicker(true)}
         />
         {needsRestart && Platform.OS !== "web" && <Banner tone="info" text={t("account.restartNote")} />}
+        <SelectRow
+          icon="contrast-outline"
+          label={t("theme.title")}
+          value={t(`theme.${preference}`)}
+          onPress={() => setThemePicker(true)}
+        />
       </Card>
 
       <Card style={{ gap: spacing.sm }}>
@@ -144,6 +154,7 @@ export default function Account() {
         selected={lang}
         onSelect={setLang}
       />
+      <ThemeSheet visible={themePicker} onClose={() => setThemePicker(false)} />
 
       <Sheet visible={deleting} onClose={() => setDeleting(false)} title={t("account.deleteConfirmTitle")}>
         <Text style={styles.meta}>
@@ -176,7 +187,7 @@ export default function Account() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   profile: { alignItems: "center", gap: spacing.xs, paddingVertical: spacing.lg },
   avatar: {
     width: 72,
@@ -192,4 +203,4 @@ const styles = StyleSheet.create({
   meta: { color: colors.textMuted, lineHeight: 21 },
   section: { color: colors.textMuted, fontSize: 12, fontWeight: "700", letterSpacing: 1, textTransform: "uppercase" },
   server: { color: colors.textDim, fontSize: 12, textAlign: "center", paddingBottom: spacing.lg },
-});
+}));

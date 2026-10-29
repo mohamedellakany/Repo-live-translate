@@ -3,7 +3,6 @@ import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "
 import {
   Pressable,
   ScrollView,
-  StyleSheet,
   Text,
   View,
   type NativeScrollEvent,
@@ -12,7 +11,7 @@ import {
 } from "react-native";
 import type { CaptionLine } from "@/hooks/useCaptions";
 import { useI18n } from "@/i18n";
-import { colors, radius, spacing } from "@/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 interface Props {
   lines: CaptionLine[];
@@ -22,12 +21,23 @@ interface Props {
   fontScale?: number;
   /** Writing direction of the translation language. */
   translationRtl?: boolean;
+  /** Writing direction of the language being spoken. */
+  originalRtl?: boolean;
   empty?: ReactNode;
 }
 
 const NEAR_BOTTOM_PX = 80;
 
-export function CaptionFeed({ lines, mode, showOriginal = true, fontScale = 1, translationRtl = false, empty }: Props) {
+export function CaptionFeed({
+  lines,
+  mode,
+  showOriginal = true,
+  fontScale = 1,
+  translationRtl = false,
+  originalRtl = true,
+  empty,
+}: Props) {
+  const styles = useStyles();
   const { t } = useI18n();
   const scrollRef = useRef<ScrollViewInstance>(null);
   const [following, setFollowing] = useState(true);
@@ -68,6 +78,7 @@ export function CaptionFeed({ lines, mode, showOriginal = true, fontScale = 1, t
             showOriginal={showOriginal}
             fontScale={fontScale}
             translationRtl={translationRtl}
+            originalRtl={originalRtl}
             unavailable={t("captions.unavailable")}
           />
         ))}
@@ -96,6 +107,7 @@ const Line = memo(function Line({
   showOriginal,
   fontScale,
   translationRtl,
+  originalRtl,
   unavailable,
 }: {
   line: CaptionLine;
@@ -103,8 +115,11 @@ const Line = memo(function Line({
   showOriginal: boolean;
   fontScale: number;
   translationRtl: boolean;
+  originalRtl: boolean;
   unavailable: string;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const dir = translationRtl ? styles.rtl : styles.ltr;
   const inProgress = !line.sourceFinal || !line.translationFinal;
   const translation = line.error ? (
@@ -129,6 +144,7 @@ const Line = memo(function Line({
     <Text
       style={[
         styles.original,
+        originalRtl ? styles.rtl : styles.ltr,
         mode === "speaker"
           ? { fontSize: 21 * fontScale, lineHeight: 32 * fontScale, color: colors.text }
           : { fontSize: 15 * fontScale, lineHeight: 24 * fontScale },
@@ -144,19 +160,20 @@ const Line = memo(function Line({
       {mode === "listener" ? (
         <>
           {translation}
-          {showOriginal && !!line.original && original}
+          {/* When the listener reads the speaker's own language, the "translation" is the original text. */}
+          {showOriginal && !!line.original && line.original !== line.translation && original}
         </>
       ) : (
         <>
           {original}
-          {showOriginal && translation}
+          {showOriginal && line.translation !== line.original && translation}
         </>
       )}
     </View>
   );
 });
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   list: { paddingVertical: spacing.md, gap: spacing.sm },
   emptyWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xl },
   line: {
@@ -172,7 +189,7 @@ const styles = StyleSheet.create({
   // Captions keep their own language direction regardless of the UI language.
   ltr: { writingDirection: "ltr", textAlign: "left" },
   rtl: { writingDirection: "rtl", textAlign: "right" },
-  original: { color: colors.textMuted, writingDirection: "rtl", textAlign: "right" },
+  original: { color: colors.textMuted },
   interim: { opacity: 0.7 },
   pending: { color: colors.textDim },
   errorText: { color: colors.warning, fontStyle: "italic" },
@@ -189,4 +206,4 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
   },
   jumpText: { color: "#fff", fontWeight: "600" },
-});
+}));

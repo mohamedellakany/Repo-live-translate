@@ -1,6 +1,6 @@
 import { Redirect, router, useLocalSearchParams, type Href } from "expo-router";
 import { useEffect, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/auth/AuthProvider";
 import { CodeInput } from "@/components/CodeInput";
@@ -8,11 +8,13 @@ import { AppHeader, Banner, Button, Screen } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { api, ApiError } from "@/lib/api";
 import { useServerConfig } from "@/lib/serverConfig";
-import { colors, spacing } from "@/theme";
+import { makeStyles, spacing, useTheme } from "@/theme";
 
 const RESEND_SECONDS = 60;
 
 export default function VerifyEmail() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { t } = useI18n();
   const { user, ready, verifyEmail, signOut } = useAuth();
   const { features } = useServerConfig();
@@ -91,9 +93,9 @@ export default function VerifyEmail() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   icon: { alignItems: "center", marginTop: spacing.lg },
   title: { color: colors.text, fontSize: 26, fontWeight: "800", textAlign: "center" },
   subtitle: { color: colors.textMuted, fontSize: 15, lineHeight: 22, textAlign: "center" },
   link: { color: colors.textMuted, textAlign: "center", fontSize: 14, paddingVertical: spacing.sm },
-});
+}));

@@ -4,7 +4,7 @@
  */
 import type { UiLang } from "@/i18n";
 
-export const LEGAL_UPDATED = "2026-10-28";
+export const LEGAL_UPDATED = "2026-10-29";
 const COMPANY = process.env.EXPO_PUBLIC_COMPANY_NAME || "Live Translate";
 const EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL || "support@your-domain.com";
 
@@ -27,7 +27,7 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
     },
     {
       heading: "Information we collect",
-      body: "• Speaker accounts: name, username, email address, and a securely hashed password (or your Google account ID if you sign in with Google).\n• Session content: the text recognized from your speech, its translations, session titles, and basic statistics (start/end time, number of listeners, characters translated).\n• Listeners: listeners don't need an account. We process the speaker ID they enter and their connection to deliver captions.\n• Technical data: IP address and device/browser information in server logs, used for security and troubleshooting.",
+      body: "• Speaker accounts: name, username, email address, and a securely hashed password (or your Google account ID if you sign in with Google).\n• Session content: the text recognized from your speech, its translations, session titles, and basic statistics (start/end time, number of listeners, characters translated).\n• Listeners: listeners don't need an account. We process the speaker ID they enter and their connection to deliver captions. Listeners who choose to sign in also have an account (as above), and we record which sessions they attended and the language they read, so they can reopen them from \"My sessions\".\n• Technical data: IP address and device/browser information in server logs, used for security and troubleshooting.",
     },
     {
       heading: "Audio and speech recognition",
@@ -35,7 +35,7 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
     },
     {
       heading: "How we use information",
-      body: "To provide live captions and translations, let listeners find speakers, save transcripts in the speaker's history, send verification and password-reset codes, generate optional AI summaries when a speaker requests one, keep the service secure, and comply with the law. We don't sell personal information or use it for advertising.",
+      body: "To provide live captions and translations, let listeners find speakers, save transcripts in the speaker's history, send verification and password-reset codes, let signed-in listeners reread sessions they attended, generate AI summaries of sessions (automatically when a session ends, or when a speaker requests one), keep the service secure, and comply with the law. We don't sell personal information or use it for advertising.",
     },
     {
       heading: "Service providers",
@@ -43,11 +43,11 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
     },
     {
       heading: "Who can see your sessions",
-      body: "Live captions are visible to anyone who knows a speaker's ID, unless the speaker starts a private session protected by a PIN. Saved transcripts and summaries are visible only to the speaker's account.",
+      body: "Live captions are visible to anyone who knows a speaker's ID, unless the speaker starts a private session protected by a PIN. Saved transcripts and summaries are visible to the speaker's account and, if the speaker allows it for that session, to signed-in listeners who attended it. Speakers can turn this off for any session at any time; private sessions are off unless the speaker turns it on.",
     },
     {
       heading: "Retention and deletion",
-      body: "Transcripts are kept until the speaker deletes them. Speakers can delete individual sessions, or their whole account from Account > Delete account, which permanently removes the account, sessions and transcripts. Backups are overwritten within 14 days.",
+      body: "Transcripts are kept until the speaker deletes them; deleting a session also removes it from listeners' \"My sessions\". Listeners can remove sessions from their own list at any time. Speakers can delete individual sessions, or their whole account from Account > Delete account, which permanently removes the account, sessions and transcripts. Backups are overwritten within 14 days.",
     },
     {
       heading: "Security",
@@ -73,7 +73,7 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
     },
     {
       heading: "المعلومات التي نجمعها",
-      body: "• حسابات المتحدثين: الاسم واسم المستخدم والبريد الإلكتروني وكلمة مرور مشفّرة بشكل آمن (أو معرّف حساب Google عند تسجيل الدخول عبره).\n• محتوى الجلسات: النص المستخرج من كلامك وترجماته وعناوين الجلسات وإحصاءات أساسية (وقت البدء والانتهاء وعدد المستمعين وعدد الأحرف المترجمة).\n• المستمعون: لا يحتاج المستمعون إلى حساب. نعالج معرّف المتحدث الذي يدخلونه واتصالهم لإيصال الترجمة.\n• بيانات تقنية: عنوان IP ومعلومات الجهاز أو المتصفح في سجلات الخادم، لأغراض الأمان وحل المشكلات.",
+      body: "• حسابات المتحدثين: الاسم واسم المستخدم والبريد الإلكتروني وكلمة مرور مشفّرة بشكل آمن (أو معرّف حساب Google عند تسجيل الدخول عبره).\n• محتوى الجلسات: النص المستخرج من كلامك وترجماته وعناوين الجلسات وإحصاءات أساسية (وقت البدء والانتهاء وعدد المستمعين وعدد الأحرف المترجمة).\n• المستمعون: لا يحتاج المستمعون إلى حساب. نعالج معرّف المتحدث الذي يدخلونه واتصالهم لإيصال الترجمة. المستمعون الذين يختارون تسجيل الدخول لديهم حساب أيضًا (كما سبق)، ونسجّل الجلسات التي حضروها واللغة التي قرأوا بها، ليتمكنوا من إعادة فتحها من «جلساتي».\n• بيانات تقنية: عنوان IP ومعلومات الجهاز أو المتصفح في سجلات الخادم، لأغراض الأمان وحل المشكلات.",
     },
     {
       heading: "الصوت والتعرّف على الكلام",
@@ -81,7 +81,7 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
     },
     {
       heading: "كيف نستخدم المعلومات",
-      body: "لتقديم الترجمة المباشرة، وتمكين المستمعين من العثور على المتحدثين، وحفظ النصوص في سجل المتحدث، وإرسال رموز التحقق وإعادة تعيين كلمة المرور، وإنشاء ملخصات بالذكاء الاصطناعي عندما يطلبها المتحدث، والحفاظ على أمان الخدمة، والالتزام بالقانون. لا نبيع المعلومات الشخصية ولا نستخدمها للإعلانات.",
+      body: "لتقديم الترجمة المباشرة، وتمكين المستمعين من العثور على المتحدثين، وحفظ النصوص في سجل المتحدث، وإرسال رموز التحقق وإعادة تعيين كلمة المرور، وتمكين المستمعين المسجّلين من إعادة قراءة الجلسات التي حضروها، وإنشاء ملخصات للجلسات بالذكاء الاصطناعي (تلقائيًا عند انتهاء الجلسة أو عندما يطلبها المتحدث)، والحفاظ على أمان الخدمة، والالتزام بالقانون. لا نبيع المعلومات الشخصية ولا نستخدمها للإعلانات.",
     },
     {
       heading: "مزوّدو الخدمة",
@@ -89,11 +89,11 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
     },
     {
       heading: "من يمكنه رؤية جلساتك",
-      body: "الترجمة المباشرة مرئية لأي شخص يعرف معرّف المتحدث، إلا إذا بدأ المتحدث جلسة خاصة محمية برمز PIN. النصوص والملخصات المحفوظة مرئية لحساب المتحدث فقط.",
+      body: "الترجمة المباشرة مرئية لأي شخص يعرف معرّف المتحدث، إلا إذا بدأ المتحدث جلسة خاصة محمية برمز PIN. النصوص والملخصات المحفوظة مرئية لحساب المتحدث، وللمستمعين المسجّلين الذين حضروا الجلسة إذا سمح المتحدث بذلك لتلك الجلسة. يمكن للمتحدث إيقاف ذلك لأي جلسة في أي وقت، وهو متوقف في الجلسات الخاصة ما لم يفعّله المتحدث.",
     },
     {
       heading: "مدة الاحتفاظ والحذف",
-      body: "نحتفظ بالنصوص حتى يحذفها المتحدث. يمكن للمتحدث حذف جلسات فردية أو حذف حسابه بالكامل من الحساب > حذف الحساب، مما يزيل الحساب والجلسات والنصوص نهائياً. تُستبدل النسخ الاحتياطية خلال 14 يوماً.",
+      body: "نحتفظ بالنصوص حتى يحذفها المتحدث، وحذف الجلسة يزيلها أيضًا من «جلساتي» لدى المستمعين. ويمكن للمستمعين إزالة الجلسات من قائمتهم في أي وقت. يمكن للمتحدث حذف جلسات فردية أو حذف حسابه بالكامل من الحساب > حذف الحساب، مما يزيل الحساب والجلسات والنصوص نهائياً. تُستبدل النسخ الاحتياطية خلال 14 يوماً.",
     },
     {
       heading: "الأمان",

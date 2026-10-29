@@ -1,17 +1,21 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
+import { ThemeSheet } from "@/components/ThemeSheet";
 import { Button, Card, Chip, IconButton, Screen, TextField } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
 import { normalizeUsername } from "@/lib/format";
 import { recentSpeakers, type RecentSpeaker } from "@/lib/recentSpeakers";
-import { colors, radius, spacing } from "@/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 export default function Home() {
+  const { colors, name: themeName } = useTheme();
+  const styles = useStyles();
   const { user } = useAuth();
+  const [themePicker, setThemePicker] = useState(false);
   const { t, lang, setLang } = useI18n();
   const [speakerId, setSpeakerId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +61,11 @@ export default function Home() {
             <Text style={styles.langText}>{lang === "ar" ? "English" : "العربية"}</Text>
           </Pressable>
           <IconButton
+            icon={themeName === "dark" ? "moon-outline" : "sunny-outline"}
+            label={t("theme.title")}
+            onPress={() => setThemePicker(true)}
+          />
+          <IconButton
             icon={user ? "person-circle" : "person-circle-outline"}
             label={user ? t("home.account") : t("home.signIn")}
             onPress={() => router.push(user ? "/account" : "/login")}
@@ -95,6 +104,9 @@ export default function Home() {
           accessibilityLabel={t("home.speakerIdLabel")}
         />
         <Button title={t("home.startReading")} icon="arrow-forward" onPress={() => join()} loading={checking} />
+        {user && (
+          <Button title={t("home.mySessions")} icon="bookmarks-outline" variant="secondary" onPress={() => router.push("/library")} />
+        )}
         {recent.length > 0 && (
           <View style={{ gap: spacing.sm }}>
             <Text style={styles.recentLabel}>{t("home.recent")}</Text>
@@ -143,11 +155,12 @@ export default function Home() {
           {t("home.terms")}
         </Link>
       </View>
+      <ThemeSheet visible={themePicker} onClose={() => setThemePicker(false)} />
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   topBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   brand: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   logo: { width: 36, height: 36, borderRadius: radius.sm },
@@ -184,4 +197,4 @@ const styles = StyleSheet.create({
   footer: { flexDirection: "row", justifyContent: "center", gap: spacing.sm, paddingBottom: spacing.lg },
   footerLink: { color: colors.textDim, fontSize: 13 },
   footerDot: { color: colors.textDim },
-});
+}));

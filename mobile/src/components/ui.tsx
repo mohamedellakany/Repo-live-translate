@@ -19,7 +19,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useI18n } from "@/i18n";
-import { colors, maxContentWidth, radius, spacing } from "@/theme";
+import { makeStyles, maxContentWidth, radius, spacing, useTheme, type ThemeColors } from "@/theme";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
 
@@ -36,6 +36,7 @@ export function Screen({
   header?: ReactNode;
   contentStyle?: StyleProp<ViewStyle>;
 }) {
+  const styles = useStyles();
   const inner = <View style={[styles.content, contentStyle]}>{children}</View>;
   return (
     <SafeAreaView style={styles.screen} edges={["top", "bottom", "left", "right"]}>
@@ -54,6 +55,7 @@ export function Screen({
 }
 
 export function AppHeader({ title, back = true, right }: { title?: string; back?: boolean; right?: ReactNode }) {
+  const styles = useStyles();
   const { t, isRTL } = useI18n();
   return (
     <View style={styles.headerOuter}>
@@ -77,6 +79,7 @@ export function AppHeader({ title, back = true, right }: { title?: string; back?
 }
 
 export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  const styles = useStyles();
   return <View style={[styles.card, style]}>{children}</View>;
 }
 
@@ -103,7 +106,9 @@ export function Button({
   size?: "md" | "lg";
   style?: StyleProp<ViewStyle>;
 }) {
-  const v = buttonVariants[variant];
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const v = buttonVariants(colors)[variant];
   const isDisabled = disabled || loading;
   return (
     <Pressable
@@ -131,13 +136,13 @@ export function Button({
   );
 }
 
-const buttonVariants: Record<ButtonVariant, { bg: string; pressed: string; fg: string; border: string }> = {
+const buttonVariants = (colors: ThemeColors): Record<ButtonVariant, { bg: string; pressed: string; fg: string; border: string }> => ({
   primary: { bg: colors.primary, pressed: colors.primaryPressed, fg: "#fff", border: colors.primary },
   secondary: { bg: colors.surfaceAlt, pressed: colors.border, fg: colors.text, border: colors.border },
   ghost: { bg: "transparent", pressed: colors.surfaceAlt, fg: colors.text, border: "transparent" },
-  danger: { bg: "transparent", pressed: "#3A1D26", fg: colors.danger, border: colors.danger },
-  live: { bg: colors.live, pressed: "#E63E4E", fg: "#fff", border: colors.live },
-};
+  danger: { bg: "transparent", pressed: colors.dangerPressed, fg: colors.danger, border: colors.danger },
+  live: { bg: colors.live, pressed: colors.livePressed, fg: "#fff", border: colors.live },
+});
 
 export function IconButton({
   icon,
@@ -152,6 +157,8 @@ export function IconButton({
   active?: boolean;
   color?: string;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Pressable
       accessibilityRole="button"
@@ -173,6 +180,8 @@ export function TextField({
   style,
   ...props
 }: TextInputProps & { label?: string; error?: string | null; prefix?: string; hint?: string }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={{ gap: 6 }}>
       {label && <Text style={styles.label}>{label}</Text>}
@@ -188,6 +197,8 @@ export function TextField({
 /* ------------------------------- Feedback -------------------------------- */
 
 export function Banner({ tone = "info", text, icon }: { tone?: "info" | "warning" | "error"; text: string; icon?: IconName }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const c = tone === "error" ? colors.danger : tone === "warning" ? colors.warning : colors.primary;
   const defaultIcon: IconName = tone === "info" ? "information-circle" : "warning";
   return (
@@ -199,6 +210,8 @@ export function Banner({ tone = "info", text, icon }: { tone?: "info" | "warning
 }
 
 export function LiveBadge({ state }: { state: "live" | "offline" | "reconnecting" | "paused" }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { t } = useI18n();
   const color = { live: colors.live, reconnecting: colors.warning, paused: colors.warning, offline: colors.textDim }[state];
   const label = t(`badge.${state}`);
@@ -211,6 +224,8 @@ export function LiveBadge({ state }: { state: "live" | "offline" | "reconnecting
 }
 
 export function Chip({ icon, text }: { icon?: IconName; text: string }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.chip}>
       {icon && <Ionicons name={icon} size={14} color={colors.textMuted} />}
@@ -219,7 +234,7 @@ export function Chip({ icon, text }: { icon?: IconName; text: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   screen: { flex: 1, backgroundColor: colors.bg },
   scroll: { flexGrow: 1 },
   content: { flex: 1, width: "100%", maxWidth: maxContentWidth, alignSelf: "center", padding: spacing.lg, gap: spacing.lg },
@@ -300,7 +315,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   chipText: { color: colors.textMuted, fontSize: 13, fontWeight: "500" },
-});
+}));
 
 /* ------------------------------ Form rows -------------------------------- */
 
@@ -315,6 +330,8 @@ export function SwitchRow({
   value: boolean;
   onValueChange: (v: boolean) => void;
 }) {
+  const { colors } = useTheme();
+  const rowStyles = useRowStyles();
   return (
     <View style={rowStyles.row}>
       <View style={{ flex: 1, gap: 2 }}>
@@ -334,6 +351,8 @@ export function SwitchRow({
 
 /** A tappable row showing the current value of a setting; opens a picker. */
 export function SelectRow({ label, value, hint, onPress, icon }: { label: string; value: string; hint?: string; onPress: () => void; icon?: IconName }) {
+  const { colors } = useTheme();
+  const rowStyles = useRowStyles();
   const { isRTL } = useI18n();
   return (
     <Pressable
@@ -357,6 +376,7 @@ export function SelectRow({ label, value, hint, onPress, icon }: { label: string
 /* --------------------------------- Sheets -------------------------------- */
 
 export function Sheet({ visible, onClose, title, children }: { visible: boolean; onClose: () => void; title?: string; children: ReactNode }) {
+  const sheetStyles = useSheetStyles();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable style={sheetStyles.backdrop} onPress={onClose} accessibilityLabel="Close">
@@ -390,6 +410,8 @@ export function OptionSheet<T extends string>({
   selected: T;
   onSelect: (value: T) => void;
 }) {
+  const { colors } = useTheme();
+  const sheetStyles = useSheetStyles();
   return (
     <Sheet visible={visible} onClose={onClose} title={title}>
       <ScrollView style={{ maxHeight: 460 }}>
@@ -419,14 +441,14 @@ export function OptionSheet<T extends string>({
   );
 }
 
-const rowStyles = StyleSheet.create({
+const useRowStyles = makeStyles((colors) => ({
   row: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 48 },
   label: { color: colors.text, fontSize: 15, fontWeight: "600" },
   hint: { color: colors.textDim, fontSize: 13 },
   value: { color: colors.textMuted, fontSize: 15, maxWidth: "45%" },
-});
+}));
 
-const sheetStyles = StyleSheet.create({
+const useSheetStyles = makeStyles((colors) => ({
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "flex-end", alignItems: "center" },
   sheet: {
     width: "100%",
@@ -442,4 +464,4 @@ const sheetStyles = StyleSheet.create({
   option: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderRadius: radius.md },
   optionLabel: { color: colors.text, fontSize: 16, fontWeight: "600" },
   optionDesc: { color: colors.textMuted, fontSize: 13, lineHeight: 18 },
-});
+}));

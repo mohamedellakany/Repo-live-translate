@@ -26,10 +26,11 @@ export const LANGUAGES: Record<string, Language> = {
   nl: { code: "nl", name: "Dutch", nativeName: "Nederlands", rtl: false },
 };
 
-/** Languages a speaker may speak in. */
-export const SOURCE_LANGUAGES = ["ar"];
+/** Languages a speaker may speak in. Arabic is the default and listed first. */
+export const SOURCE_LANGUAGES = ["ar", "en", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
+export const DEFAULT_SOURCE = "ar";
 /** Languages a listener may read in (all supported by Google, DeepL and Claude). */
-export const TARGET_LANGUAGES = ["en", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
+export const TARGET_LANGUAGES = ["en", "ar", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
 export const DEFAULT_TARGET = "en";
 
 export const isSourceLanguage = (code: string) => SOURCE_LANGUAGES.includes(code);

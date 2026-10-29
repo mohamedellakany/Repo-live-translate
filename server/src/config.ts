@@ -22,9 +22,18 @@ const schema = z.object({
   CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
 
   // AI meeting summaries: "gemini" or "claude". If unset, uses whichever key is configured (Gemini first).
-  SUMMARY_PROVIDER: z.enum(["gemini", "claude"]).optional(),
+  // A blank value (as in .env.example) counts as unset.
+  SUMMARY_PROVIDER: z.preprocess(
+    (v) => (typeof v === "string" && !v.trim() ? undefined : v),
+    z.enum(["gemini", "claude"]).optional(),
+  ),
   GEMINI_API_KEY: optional,
   GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
+  // Summarize every session automatically when it ends (set to "false" to only summarize on request).
+  AUTO_SUMMARY: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() !== "false"),
 
   // Google sign-in: comma-separated OAuth client IDs (web, iOS, Android) accepted as token audiences.
   GOOGLE_CLIENT_IDS: optional,

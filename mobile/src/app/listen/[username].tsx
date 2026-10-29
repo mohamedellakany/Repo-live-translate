@@ -4,19 +4,20 @@ import { useKeepAwake } from "expo-keep-awake";
 import { router, useLocalSearchParams } from "expo-router";
 import * as Speech from "expo-speech";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Socket } from "socket.io-client";
 import { useAuth } from "@/auth/AuthProvider";
 import { CaptionFeed } from "@/components/CaptionFeed";
 import { AppHeader, Banner, Button, Card, IconButton, LiveBadge, OptionSheet, Screen, TextField } from "@/components/ui";
-import { DEFAULT_TARGET, LANGUAGES, TARGET_LANGUAGES } from "@/constants/languages";
+import { DEFAULT_SOURCE, DEFAULT_TARGET, LANGUAGES, TARGET_LANGUAGES } from "@/constants/languages";
 import { useCaptions, type CaptionLine, type HistoryItem } from "@/hooks/useCaptions";
 import { useI18n } from "@/i18n";
 import { normalizeUsername } from "@/lib/format";
 import { recentSpeakers } from "@/lib/recentSpeakers";
 import { createSocket, emitWithAck } from "@/lib/socket";
+import { pendingLibrary } from "@/lib/pendingLibrary";
 import { storage } from "@/lib/storage";
-import { colors, radius, spacing } from "@/theme";
+import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 interface Status {
   live: boolean;
@@ -24,6 +25,9 @@ interface Status {
   sessionId: string | null;
   title: string | null;
   private: boolean;
+  sourceLang?: string;
+  /** Signed-in listeners can reopen this session later from "My sessions". */
+  revisit?: boolean;
 }
 type JoinState = "connecting" | "joined" | "pin" | "not_found" | "error";
 
@@ -37,12 +41,14 @@ interface Prefs {
 }
 
 export default function Listen() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   // Leaving before the browser grants the wake lock is normal; don't surface it as an error.
   useKeepAwake(undefined, { suppressDeactivateWarnings: true });
   const { t } = useI18n();
   const params = useLocalSearchParams<{ username: string }>();
   const username = normalizeUsername(String(params.username ?? ""));
-  const { token, ready } = useAuth();
+  const { token, ready, user } = useAuth();
 
   // Created once auth state is known (token is optional for listeners); connected in an effect below.
   const socket = useMemo<Socket | null>(() => (ready ? createSocket(token) : null), [ready, token]);
@@ -61,6 +67,17 @@ export default function Listen() {
 
   const target = LANGUAGES[prefs.lang] ?? LANGUAGES[DEFAULT_TARGET];
   const sessionRef = useRef<string | null>(null);
+  const revisitRef = useRef(false);
+  /** The session that just ended, to offer reading it again later. */
+  const [ended, setEnded] = useState<{ sessionId: string; revisit: boolean } | null>(null);
+
+  /** Track the current session; guests' sessions are remembered so they can be saved after signing up. */
+  const noteSession = (st: Status, lang: string) => {
+    if (!st.sessionId) return;
+    revisitRef.current = !!st.revisit;
+    setEnded(null);
+    if (!token && st.revisit) void pendingLibrary.add({ sessionId: st.sessionId, lang });
+  };
   const pinRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -109,6 +126,7 @@ export default function Listen() {
         setStatus(res.status);
         setListeners(res.listeners);
         sessionRef.current = res.status.sessionId;
+        noteSession(res.status, lang);
         reset(res.history as HistoryItem[]);
         setJoinState("joined");
         setPinError(null);
@@ -119,7 +137,8 @@ export default function Listen() {
         return false;
       }
     },
-    [username, reset, t],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [username, reset, t, token],
   );
 
   // (Re)join on every connect, with the current language and any PIN already accepted.
@@ -129,6 +148,8 @@ export default function Listen() {
   });
   const onStatus = useEffectEvent((st: Status) => {
     if (st.sessionId && st.sessionId !== sessionRef.current) reset(); // a new session began
+    if (!st.sessionId && sessionRef.current) setEnded({ sessionId: sessionRef.current, revisit: revisitRef.current });
+    noteSession(st, prefs.lang);
     sessionRef.current = st.sessionId;
     setStatus(st);
   });
@@ -193,6 +214,8 @@ export default function Listen() {
   const fontScale = FONT_SCALES[prefs.fontIndex] ?? 1;
   const liveState = status.live ? (status.reconnecting ? "reconnecting" : "live") : "offline";
   const speakerName = speaker?.displayName ?? `@${username}`;
+  /** Signed in as the speaker (e.g. testing in a second tab of the same browser). */
+  const isOwnSession = !!user && user.username === username;
 
   /* ------------------------------ error states ----------------------------- */
   if (joinState === "not_found" || joinState === "error") {
@@ -277,6 +300,61 @@ export default function Listen() {
 
       {!connected && joinState === "joined" && <Banner tone="warning" icon="cloud-offline-outline" text={t("listen.reconnecting")} />}
       {status.live && status.reconnecting && <Banner tone="warning" text={t("listen.speakerDropped")} />}
+      {ended && isOwnSession && (
+        // Speakers aren't added to their own listeners' library; their sessions live in Past sessions.
+        <Card style={styles.saveCard}>
+          <View style={styles.saveHead}>
+            <Ionicons name="time-outline" size={20} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.saveTitle}>{t("listen.ownTitle")}</Text>
+              <Text style={styles.saveText}>{t("listen.ownText")}</Text>
+            </View>
+            <Button
+              title={t("listen.openSaved")}
+              variant="secondary"
+              onPress={() => router.push({ pathname: "/history/[id]", params: { id: ended.sessionId } })}
+            />
+          </View>
+        </Card>
+      )}
+      {ended?.revisit &&
+        !isOwnSession &&
+        (user ? (
+          <Card style={styles.saveCard}>
+            <View style={styles.saveHead}>
+              <Ionicons name="bookmark" size={20} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.saveTitle}>{t("listen.savedTitle")}</Text>
+                <Text style={styles.saveText}>{t("listen.savedText")}</Text>
+              </View>
+              <Button
+                title={t("listen.openSaved")}
+                variant="secondary"
+                onPress={() => router.push({ pathname: "/library/[id]", params: { id: ended.sessionId } })}
+              />
+            </View>
+          </Card>
+        ) : (
+          <Card style={styles.saveCard}>
+            <View style={styles.saveHead}>
+              <Ionicons name="bookmark-outline" size={20} color={colors.primary} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.saveTitle}>{t("listen.saveTitle")}</Text>
+                <Text style={styles.saveText}>{t("listen.saveText")}</Text>
+              </View>
+            </View>
+            <Button
+              title={t("listen.saveCreate")}
+              icon="person-add-outline"
+              onPress={() => router.push({ pathname: "/register", params: { next: "/library" } })}
+            />
+            <Button
+              title={t("listen.saveSignIn")}
+              variant="ghost"
+              onPress={() => router.push({ pathname: "/login", params: { next: "/library" } })}
+            />
+          </Card>
+        ))}
 
       <View style={styles.feed}>
         {joinState === "connecting" ? (
@@ -291,6 +369,7 @@ export default function Listen() {
             showOriginal={prefs.showOriginal}
             fontScale={fontScale}
             translationRtl={target.rtl}
+            originalRtl={LANGUAGES[status.sourceLang ?? DEFAULT_SOURCE]?.rtl ?? true}
             empty={
               <View style={{ alignItems: "center", gap: spacing.sm }}>
                 <Ionicons name={status.live ? "ear-outline" : "moon-outline"} size={40} color={colors.textDim} />
@@ -332,7 +411,7 @@ export default function Listen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   statusBar: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   statusTitle: { flex: 1, color: colors.textMuted, fontSize: 14 },
   langButton: {
@@ -353,4 +432,8 @@ const styles = StyleSheet.create({
   centerText: { color: colors.textMuted, fontSize: 15, textAlign: "center", lineHeight: 22 },
   toolbar: { flexDirection: "row", alignItems: "center", gap: spacing.xs, paddingVertical: spacing.sm },
   aa: { color: colors.textMuted, fontWeight: "700" },
-});
+  saveCard: { gap: spacing.sm, borderColor: colors.primary },
+  saveHead: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  saveTitle: { color: colors.text, fontSize: 16, fontWeight: "700" },
+  saveText: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
+}));

@@ -1,16 +1,18 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, router, useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { AppHeader, Banner, Button, LiveBadge, Screen } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { api, type SessionSummary } from "@/lib/api";
-import { formatDateTime, formatDuration, parseDbDate } from "@/lib/format";
-import { colors, maxContentWidth, radius, spacing } from "@/theme";
+import { formatDateTime, formatDuration, formatSessionDate, formatTime, parseDbDate } from "@/lib/format";
+import { makeStyles, maxContentWidth, radius, spacing, useTheme } from "@/theme";
 
 export default function History() {
-  const { t, isRTL } = useI18n();
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const { t, isRTL, lang } = useI18n();
   const { user, ready } = useAuth();
   const [items, setItems] = useState<SessionSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,8 +72,10 @@ export default function History() {
             const duration = item.endedAt
               ? formatDuration(parseDbDate(item.endedAt).getTime() - parseDbDate(item.startedAt).getTime())
               : null;
+            // Untitled sessions are named after their date, so the meta line only needs the time.
+            const title = item.title || formatSessionDate(item.startedAt, lang);
             const meta = [
-              formatDateTime(item.startedAt),
+              item.title ? formatDateTime(item.startedAt) : formatTime(item.startedAt, lang),
               duration,
               t("history.lines", { count: item.segmentCount }),
               t("history.listeners", { count: item.peakListeners }),
@@ -88,7 +92,7 @@ export default function History() {
                     {item.isPrivate && <Ionicons name="lock-closed" size={14} color={colors.warning} />}
                     {item.hasSummary && <Ionicons name="sparkles" size={14} color={colors.primary} />}
                     <Text style={styles.title} numberOfLines={1}>
-                      {item.title || t("history.untitled")}
+                      {title}
                     </Text>
                   </View>
                   <Text style={styles.meta}>{meta}</Text>
@@ -110,7 +114,7 @@ export default function History() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   list: { padding: spacing.lg, gap: spacing.sm, width: "100%", maxWidth: maxContentWidth, alignSelf: "center" },
   row: {
     flexDirection: "row",
@@ -129,4 +133,4 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", gap: spacing.md, paddingTop: spacing.xxl },
   emptyTitle: { color: colors.text, fontSize: 18, fontWeight: "700" },
   emptyText: { color: colors.textMuted, textAlign: "center" },
-});
+}));

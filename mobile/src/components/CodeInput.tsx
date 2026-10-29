@@ -1,7 +1,7 @@
 import { useRef } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View, type TextInputInstance } from "react-native";
+import { Pressable, Text, TextInput, View, type TextInputInstance } from "react-native";
 import { useI18n } from "@/i18n";
-import { colors, radius, spacing } from "@/theme";
+import { makeStyles, radius, spacing } from "@/theme";
 
 /** 6-digit one-time code input. Calls onComplete when all digits are entered (incl. paste / SMS autofill). */
 export function CodeInput({
@@ -19,6 +19,7 @@ export function CodeInput({
   error?: string | null;
   label?: string;
 }) {
+  const styles = useStyles();
   const { isRTL } = useI18n();
   const ref = useRef<TextInputInstance>(null);
   const digits = value.split("");
@@ -61,7 +62,7 @@ export function CodeInput({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   row: { gap: spacing.sm, justifyContent: "center" },
   cell: {
     width: 48,
@@ -78,4 +79,4 @@ const styles = StyleSheet.create({
   digit: { color: colors.text, fontSize: 24, fontWeight: "700" },
   hidden: { position: "absolute", top: 0, left: 0, right: 0, height: 58, opacity: 0.01, color: "transparent" },
   error: { color: colors.danger, fontSize: 13, textAlign: "center" },
-});
+}));

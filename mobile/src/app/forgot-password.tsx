@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
-import { StyleSheet, Text } from "react-native";
+import { Text } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { CodeInput } from "@/components/CodeInput";
 import { AppHeader, Banner, Button, Screen, TextField } from "@/components/ui";
@@ -8,10 +8,11 @@ import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
 import { routeAfterAuth } from "@/lib/postAuth";
 import { useServerConfig } from "@/lib/serverConfig";
-import { colors, spacing } from "@/theme";
+import { makeStyles, spacing } from "@/theme";
 
 /** Two steps: request a code by email, then enter it with a new password. */
 export default function ForgotPassword() {
+  const styles = useStyles();
   const { t } = useI18n();
   const { resetPassword } = useAuth();
   const { features } = useServerConfig();
@@ -89,7 +90,7 @@ export default function ForgotPassword() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   title: { color: colors.text, fontSize: 28, fontWeight: "800", marginTop: spacing.md },
   subtitle: { color: colors.textMuted, fontSize: 15, lineHeight: 22 },
-});
+}));
