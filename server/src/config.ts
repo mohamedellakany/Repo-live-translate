@@ -21,6 +21,11 @@ const schema = z.object({
   ANTHROPIC_API_KEY: optional,
   CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
 
+  // AI meeting summaries: "gemini" or "claude". If unset, uses whichever key is configured (Gemini first).
+  SUMMARY_PROVIDER: z.enum(["gemini", "claude"]).optional(),
+  GEMINI_API_KEY: optional,
+  GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
+
   // Google sign-in: comma-separated OAuth client IDs (web, iOS, Android) accepted as token audiences.
   GOOGLE_CLIENT_IDS: optional,
 
@@ -55,10 +60,19 @@ export const config = {
   googleClientIds: (parsed.data.GOOGLE_CLIENT_IDS ?? "").split(",").map((s) => s.trim()).filter(Boolean),
 };
 
+/** Which AI provider writes session summaries, or null when no key is configured. */
+export const summaryProvider: "gemini" | "claude" | null = (() => {
+  const hasKey = { gemini: !!config.GEMINI_API_KEY, claude: !!config.ANTHROPIC_API_KEY };
+  if (config.SUMMARY_PROVIDER) return hasKey[config.SUMMARY_PROVIDER] ? config.SUMMARY_PROVIDER : null;
+  if (hasKey.gemini) return "gemini";
+  if (hasKey.claude) return "claude";
+  return null;
+})();
+
 export const features = {
   googleSignIn: config.googleClientIds.length > 0,
   email: !!config.SMTP_HOST,
-  summaries: !!config.ANTHROPIC_API_KEY,
+  summaries: summaryProvider !== null,
 };
 
 if (

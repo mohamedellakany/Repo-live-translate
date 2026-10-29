@@ -2,7 +2,7 @@ import "./instrument.js";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
 import { createApp } from "./app.js";
-import { config, features } from "./config.js";
+import { config, features, summaryProvider } from "./config.js";
 import { attachRealtime } from "./realtime.js";
 import { translator } from "./translation/index.js";
 
@@ -20,7 +20,7 @@ httpServer.listen(config.PORT, () => {
   console.log(`Live Translate server listening on http://localhost:${config.PORT}`);
   console.log(`Translation provider: ${translator.providerName}`);
   console.log(
-    `Features: Google sign-in ${features.googleSignIn ? "on" : "off"} · email ${features.email ? "SMTP" : "console (dev)"} · AI summaries ${features.summaries ? "on" : "off"}`,
+    `Features: Google sign-in ${features.googleSignIn ? "on" : "off"} · email ${features.email ? "SMTP" : "console (dev)"} · AI summaries ${summaryProvider ? `on (${summaryProvider})` : "off"}`,
   );
   if (config.NODE_ENV === "production" && !features.email) {
     console.warn("⚠️  SMTP is not configured: verification and password-reset codes will only be printed to the log.");
