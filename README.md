@@ -59,6 +59,17 @@ npm install
 npx expo start --web --port 8082
 ```
 
+Terminal 1 — backend:
+cd ~/Downloads/Apps/Repo-live-translate/server
+npm run dev
+Wait for Live Translate server listening on http://localhost:4000.
+
+Terminal 2 — app:
+cd ~/Downloads/Apps/Repo-live-translate/mobile
+npx expo start --web --port 8082
+
+
+
 Then open http://localhost:8082:
 
 1. **Create speaker account** → **Go live** → allow the microphone → start speaking.
@@ -127,6 +138,21 @@ Listeners on a phone can also open the web URL `http://<your-computer-ip>:8082`.
 
 > **Note:** browsers only allow the **microphone** on `https://` or `localhost`, so a phone *speaking* through the browser needs HTTPS (see [Deployment](#deployment)).
 
+### Build an Android APK for testing
+
+Builds on this Mac (no Expo account needed) and saves the APK as `~/Downloads/Apps/live-translate.apk`, replacing the previous one:
+
+```bash
+cd mobile
+npm run build:apk
+```
+
+- Needs Java 17 (`brew install openjdk@17`) and the Android SDK (`~/Library/Android/sdk`). The script finds both automatically.
+- The app talks to the live server by default. Override with `API_URL=... WEB_URL=...`, or change the folder with `APK_DIR=...`.
+- After changing `mobile/app.config.ts` (name, icons, permissions), run `CLEAN=1 npm run build:apk`.
+- Install it by opening the file on the phone, or over USB: `~/Library/Android/sdk/platform-tools/adb install -r ~/Downloads/Apps/live-translate.apk`.
+- It's signed with a test key, so Google sign-in doesn't work in it. Use email and password.
+
 ### Styling and themes
 
 Colors come from the active theme, so styles are written with `makeStyles` instead of `StyleSheet.create`:
@@ -177,6 +203,18 @@ Summaries are written automatically when a session ends (after its last sentence
 
 - If both keys are set, Gemini is used unless you set `SUMMARY_PROVIDER=claude`. With no key, summaries are turned off and the button is hidden.
 - `AUTO_SUMMARY=false` turns off automatic summaries, so they're only generated when a speaker asks (one AI call per session otherwise).
+
+### Read-aloud voice
+
+Listeners can have the translation read aloud (live, and from **My sessions**). With `GEMINI_API_KEY` set, the server generates a natural voice with Gemini TTS and **streams it to listeners as it's generated**, so the voice starts about 1 second after the speaker finishes a sentence (about half a second after the text appears). Without a key, the phone's built-in voice is used.
+
+| Setting | Default | Notes |
+| --- | --- | --- |
+| `TTS_ENABLED` | `true` | `false` falls back to the phones' own voices. |
+| `TTS_MODEL` | `gemini-3.8-flash-lite-tts` | Fastest to start speaking. `gemini-3.8-flash-tts` is slightly richer but starts ~0.4 s later. |
+| `TTS_VOICE` | `Charon` | Any Gemini prebuilt voice, e.g. `Puck`, `Orus`, `Fenrir`. |
+
+Speech is only generated for languages where at least one listener has read-aloud on. Each sentence is generated once and shared, so many listeners hearing the same sentence cost one request, and replays in **My sessions** reuse it. `/api/tts` (used by **My sessions**) only voices text the server signed, so it can't be used to read arbitrary text on your key.
 
 ## Deployment
 

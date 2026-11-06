@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../auth.js";
 import { library, sessions, type LibraryRow } from "../db.js";
 import { DEFAULT_TARGET, isTargetLanguage } from "../languages.js";
+import { ttsToken } from "../tts.js";
 
 /** A listener's library: finished sessions they attended, if the speaker allows revisiting. */
 export const libraryRouter = Router();
@@ -54,7 +55,10 @@ libraryRouter.get("/:id", (req, res) => {
   // Listeners get the transcript in the language they read (falling back to the default one).
   const segments = sessions.segments(entry.id).map((s) => {
     const lang = s.translations[entry.lang] !== undefined ? entry.lang : DEFAULT_TARGET;
-    return { seq: s.seq, original: s.original, translation: s.translations[lang] ?? null, translationLang: lang };
+    const translation = s.translations[lang] ?? null;
+    // Without a translation, the original is read aloud in the speaker's language.
+    const tts = translation ? ttsToken(translation, lang) : ttsToken(s.original, entry.source_lang);
+    return { seq: s.seq, original: s.original, translation, translationLang: lang, tts };
   });
   res.json({ session: { ...serialize(entry), summary: summaryOf(entry) }, segments });
 });

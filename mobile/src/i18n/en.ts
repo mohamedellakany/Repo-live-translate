@@ -293,6 +293,18 @@ export const en = {
   "theme.dark": "Dark theme",
   "theme.toLight": "Switch to light theme",
   "theme.toDark": "Switch to dark theme",
+  // read-aloud voice
+  "voice.title": "Reading voice",
+  "voice.auto": "Automatic (male voice)",
+  "voice.autoNone": "No male voice found on this device, so the default voice is used. Pick another below.",
+  "voice.male": "Male",
+  "voice.none": "This device has no voices for this language. You can add voices in your phone's text-to-speech settings.",
+  "library.listen": "Listen",
+  "library.stopListening": "Stop",
+  // one-time code
+  "code.paste": "Paste code",
+  "code.pasteHint": "Tip: long-press the boxes to paste.",
+  "code.noCode": "No 6-digit code found in the clipboard. Copy the code from the email first.",
 };
 
 export type TKey = keyof typeof en;

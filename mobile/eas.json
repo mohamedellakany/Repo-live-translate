@@ -1,19 +1,35 @@
 {
-  "cli": { "version": ">= 16.0.0", "appVersionSource": "remote" },
+  "cli": {
+    "version": ">= 16.0.0",
+    "appVersionSource": "remote"
+  },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
-      "env": { "EXPO_PUBLIC_API_URL": "http://YOUR-LAN-IP:4000" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://YOUR-LAN-IP:4000"
+      }
     },
     "preview": {
       "distribution": "internal",
-      "env": { "EXPO_PUBLIC_API_URL": "https://api.your-domain.com" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.192-18-128-201.sslip.io",
+        "EXPO_PUBLIC_WEB_URL": "https://app.192-18-128-201.sslip.io",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "839986352773-1eno5n5ni15mt4vd68fb92mo2gg70qn7.apps.googleusercontent.com"
+      },
+      "android": {
+        "buildType": "apk"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "env": { "EXPO_PUBLIC_API_URL": "https://api.your-domain.com" }
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.your-domain.com"
+      }
     }
   },
-  "submit": { "production": {} }
+  "submit": {
+    "production": {}
+  }
 }

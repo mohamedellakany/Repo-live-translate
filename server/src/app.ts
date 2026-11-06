@@ -9,6 +9,7 @@ import { authRouter } from "./routes/auth.js";
 import { libraryRouter } from "./routes/library.js";
 import { sessionsRouter } from "./routes/sessions.js";
 import { speakersRouter } from "./routes/speakers.js";
+import { ttsRouter } from "./routes/tts.js";
 import { translator } from "./translation/index.js";
 
 export function createApp() {
@@ -32,6 +33,7 @@ export function createApp() {
   app.use("/api/speakers", speakersRouter);
   app.use("/api/sessions", sessionsRouter);
   app.use("/api/library", libraryRouter);
+  app.use("/api/tts", ttsRouter);
 
   app.use((_req, res) => res.status(404).json({ error: "Not found" }));
   if (process.env.SENTRY_DSN) Sentry.setupExpressErrorHandler(app);

@@ -286,3 +286,20 @@ test("'sentences' mode skips interim translations", async () => {
   assert.equal((await fin).text, "[en] واحد اثنان ثلاثة");
   await emitAck(speaker, "speaker:stop", {});
 });
+
+test("read-aloud audio is refused when TTS isn't configured, and no audio is streamed", async () => {
+  assert.equal((await call("GET", "/api/tts?text=hi&lang=en&token=x")).status, 503); // no Gemini key in tests
+  const token = await verifiedSpeaker("quiet");
+  const speaker = open(token);
+  await emitAck(speaker, "speaker:start", { sourceLang: "ar" });
+  const listener = open();
+  assert.equal((await emitAck(listener, "listener:join", { username: "quiet", lang: "en", audio: true })).ok, true);
+  let audio = false;
+  listener.on("caption:audio", () => (audio = true));
+  const fin = next(listener, "caption:translation", (d) => d.isFinal);
+  speaker.emit("speaker:final", { seq: 0, text: "اختبار" });
+  await fin;
+  await sleep(50);
+  assert.equal(audio, false);
+  await emitAck(speaker, "speaker:stop", {});
+});

@@ -1,14 +1,18 @@
 import * as Clipboard from "expo-clipboard";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, ScrollView, Share, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { SummaryCard, summaryText } from "@/components/SummaryCard";
 import { AppHeader, Banner, Button, IconButton, Screen } from "@/components/ui";
-import { LANGUAGES } from "@/constants/languages";
+import { VoiceSheet } from "@/components/VoiceSheet";
+import { DEFAULT_TARGET, LANGUAGES } from "@/constants/languages";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
 import { formatDateTime, formatSessionDate, formatTime } from "@/lib/format";
+import { Reader } from "@/lib/readAloud";
+import { useServerConfig } from "@/lib/serverConfig";
+import { useVoice } from "@/lib/voices";
 import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 /** Read-only transcript of a session the listener attended. */
@@ -21,6 +25,40 @@ export default function LibrarySession() {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.librarySession>> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  /** Index of the sentence being read aloud, or null when not playing. */
+  const [playing, setPlaying] = useState<number | null>(null);
+  const [voicePicker, setVoicePicker] = useState(false);
+  const { features } = useServerConfig();
+  const voice = useVoice(data?.session.lang ?? DEFAULT_TARGET);
+  const reader = useRef<Reader | null>(null);
+  reader.current ??= new Reader();
+
+  // Stop reading when leaving the page.
+  useEffect(() => () => reader.current?.dispose(), []);
+
+  /** Read the transcript aloud from sentence `start`, in the natural AI voice when available. */
+  const playFrom = (start: number) => {
+    if (!data) return;
+    reader.current?.stop();
+    data.segments.slice(start).forEach((seg, k) => {
+      const i = start + k;
+      const segLang = seg.translation ? seg.translationLang : data.session.sourceLang;
+      reader.current?.say({
+        text: seg.translation ?? seg.original,
+        lang: segLang,
+        tts: seg.tts,
+        ttsLocale: LANGUAGES[segLang]?.ttsLocale,
+        // The chosen device voice belongs to the listener's language only.
+        voice: segLang === data.session.lang ? voice.voiceId : undefined,
+        onStart: () => setPlaying(i),
+        onDone: () => i === data.segments.length - 1 && setPlaying(null),
+      });
+    });
+  };
+  const stopPlaying = () => {
+    reader.current?.stop();
+    setPlaying(null);
+  };
 
   // Wait for the saved login to be restored after a reload before fetching.
   useEffect(() => {
@@ -100,13 +138,26 @@ export default function LibrarySession() {
             </Text>
           </View>
 
+          {data.segments.length > 0 && (
+            <View style={styles.playRow}>
+              <Button
+                title={playing === null ? t("library.listen") : t("library.stopListening")}
+                icon={playing === null ? "play" : "stop"}
+                variant={playing === null ? "primary" : "secondary"}
+                onPress={() => (playing === null ? playFrom(0) : stopPlaying())}
+                style={{ flex: 1 }}
+              />
+              {!features.tts && <IconButton icon="person-outline" label={t("voice.title")} onPress={() => setVoicePicker(true)} />}
+            </View>
+          )}
+
           {summary && <SummaryCard summary={summary} />}
 
           {data.segments.length === 0 && <Text style={styles.meta}>{t("history.nothingSaid")}</Text>}
-          {data.segments.map((s) => {
+          {data.segments.map((s, i) => {
             const translationRtl = LANGUAGES[s.translationLang]?.rtl ?? false;
             return (
-              <View key={s.seq} style={styles.segment}>
+              <View key={s.seq} style={[styles.segment, playing === i && styles.segmentPlaying]}>
                 <Text style={[styles.translation, translationRtl ? styles.rtl : styles.ltr]} selectable>
                   {s.translation ?? "—"}
                 </Text>
@@ -121,6 +172,7 @@ export default function LibrarySession() {
           <Button title={t("library.remove")} icon="bookmark-outline" variant="secondary" onPress={remove} style={{ marginTop: spacing.lg }} />
         </ScrollView>
       )}
+      <VoiceSheet visible={voicePicker} onClose={() => setVoicePicker(false)} lang={data?.session.lang ?? DEFAULT_TARGET} voice={voice} />
     </Screen>
   );
 }
@@ -131,7 +183,9 @@ const useStyles = makeStyles((colors) => ({
   meta: { color: colors.textMuted, fontSize: 13 },
   ltr: { writingDirection: "ltr", textAlign: "left" },
   rtl: { writingDirection: "rtl", textAlign: "right" },
-  segment: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.lg, gap: 6 },
+  segment: { backgroundColor: colors.surface, borderRadius: radius.md, padding: spacing.lg, gap: 6, borderWidth: 1, borderColor: "transparent" },
+  segmentPlaying: { borderColor: colors.primary },
+  playRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   translation: { color: colors.text, fontSize: 17, lineHeight: 25 },
   original: { color: colors.textMuted, fontSize: 15, lineHeight: 24 },
 }));

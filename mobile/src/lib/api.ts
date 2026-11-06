@@ -65,6 +65,8 @@ export interface LibrarySegment {
   original: string;
   translation: string | null;
   translationLang: string;
+  /** Token for the natural read-aloud voice (/api/tts); absent when the server has it turned off. */
+  tts?: string;
 }
 export interface TranscriptSegment {
   seq: number;
@@ -74,7 +76,7 @@ export interface TranscriptSegment {
 }
 export interface ServerConfig {
   appName: string;
-  features: { googleSignIn: boolean; email: boolean; summaries: boolean };
+  features: { googleSignIn: boolean; email: boolean; summaries: boolean; tts?: boolean };
 }
 export type AuthResult = { token: string; user: User };
 export type GoogleResult =

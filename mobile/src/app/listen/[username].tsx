@@ -2,7 +2,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { useKeepAwake } from "expo-keep-awake";
 import { router, useLocalSearchParams } from "expo-router";
-import * as Speech from "expo-speech";
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, Text, View } from "react-native";
 import type { Socket } from "socket.io-client";
@@ -13,10 +12,15 @@ import { DEFAULT_SOURCE, DEFAULT_TARGET, LANGUAGES, TARGET_LANGUAGES } from "@/c
 import { useCaptions, type CaptionLine, type HistoryItem } from "@/hooks/useCaptions";
 import { useI18n } from "@/i18n";
 import { normalizeUsername } from "@/lib/format";
+import { LiveSpeechPlayer, type AudioEvent } from "@/lib/liveSpeech";
+import { Reader } from "@/lib/readAloud";
 import { recentSpeakers } from "@/lib/recentSpeakers";
+import { useServerConfig } from "@/lib/serverConfig";
 import { createSocket, emitWithAck } from "@/lib/socket";
+import { VoiceSheet } from "@/components/VoiceSheet";
 import { pendingLibrary } from "@/lib/pendingLibrary";
 import { storage } from "@/lib/storage";
+import { useVoice } from "@/lib/voices";
 import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 interface Status {
@@ -63,6 +67,7 @@ export default function Listen() {
   const [pinError, setPinError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const [langPicker, setLangPicker] = useState(false);
+  const [voicePicker, setVoicePicker] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const target = LANGUAGES[prefs.lang] ?? LANGUAGES[DEFAULT_TARGET];
@@ -98,18 +103,53 @@ export default function Listen() {
       return next;
     });
 
+  // Read-aloud: the server streams a natural AI voice right after each sentence's translation.
+  // Servers without it fall back to the device voice (male when available, or the listener's pick).
+  const { features } = useServerConfig();
+  const voice = useVoice(target.code);
+  const reader = useRef<Reader | null>(null);
+  reader.current ??= new Reader();
+  const livePlayer = useRef<LiveSpeechPlayer | null>(null);
+  livePlayer.current ??= new LiveSpeechPlayer();
+  /** Whether this listener receives streamed speech (kept in a ref so re-joins after reconnecting include it). */
+  const streamAudio = useRef(false);
+  useEffect(
+    () => () => {
+      reader.current?.dispose();
+      livePlayer.current?.stop();
+    },
+    [],
+  );
+  const stopReading = () => {
+    reader.current?.stop();
+    livePlayer.current?.reset();
+  };
   const speak = useCallback(
     (line: CaptionLine) => {
-      if (prefs.readAloud && line.translation) Speech.speak(line.translation, { language: target.ttsLocale });
+      if (!prefs.readAloud || !line.translation || features.tts) return;
+      reader.current?.say({ text: line.translation, lang: target.code, ttsLocale: target.ttsLocale, voice: voice.voiceId });
     },
-    [prefs.readAloud, target.ttsLocale],
+    [prefs.readAloud, features.tts, target.code, target.ttsLocale, voice.voiceId],
   );
+
+  const toggleReadAloud = async () => {
+    const on = !prefs.readAloud;
+    updatePrefs({ readAloud: on });
+    if (!features.tts) {
+      if (!on) stopReading();
+      return;
+    }
+    streamAudio.current = on;
+    if (on) await livePlayer.current?.start(); // inside the tap, so browsers allow sound
+    else livePlayer.current?.stop();
+    socket?.emit("listener:audio", { on });
+  };
   const { lines, reset } = useCaptions(socket, target.code, speak);
 
   const join = useCallback(
     async (s: Socket, lang: string, pin: string | null) => {
       try {
-        const res = await emitWithAck(s, "listener:join", { username, lang, pin });
+        const res = await emitWithAck(s, "listener:join", { username, lang, pin, audio: streamAudio.current });
         if (res.speaker) setSpeaker(res.speaker);
         if (!res.ok) {
           if (res.error === "pin_required" || res.error === "invalid_pin" || res.error === "too_many_attempts") {
@@ -153,6 +193,9 @@ export default function Listen() {
     sessionRef.current = st.sessionId;
     setStatus(st);
   });
+  const onAudio = useEffectEvent((d: AudioEvent) => {
+    if (d.lang === target.code) livePlayer.current?.onAudio(d);
+  });
   const onPinRequired = useEffectEvent(() => {
     pinRef.current = null;
     reset();
@@ -167,12 +210,14 @@ export default function Listen() {
     const handleStatus = (st: Status) => onStatus(st);
     const handleStats = (d: { listeners: number }) => setListeners(d.listeners);
     const handlePinRequired = () => onPinRequired();
+    const handleAudio = (d: AudioEvent) => onAudio(d);
     socket.on("connect", handleConnect);
     socket.on("disconnect", handleDisconnect);
     socket.on("connect_error", handleDisconnect);
     socket.on("speaker:status", handleStatus);
     socket.on("room:stats", handleStats);
     socket.on("listener:pin_required", handlePinRequired);
+    socket.on("caption:audio", handleAudio);
     socket.connect();
     return () => {
       socket.off("connect", handleConnect);
@@ -181,14 +226,15 @@ export default function Listen() {
       socket.off("speaker:status", handleStatus);
       socket.off("room:stats", handleStats);
       socket.off("listener:pin_required", handlePinRequired);
+      socket.off("caption:audio", handleAudio);
       socket.disconnect();
-      Speech.stop();
+      stopReading();
     };
   }, [socket, prefsLoaded, username]);
 
   const changeLanguage = (lang: string) => {
     if (lang === prefs.lang) return;
-    Speech.stop();
+    stopReading();
     updatePrefs({ lang });
     reset();
     if (socket?.connected) join(socket, lang, pinRef.current);
@@ -269,10 +315,7 @@ export default function Listen() {
               icon={prefs.readAloud ? "volume-high" : "volume-mute-outline"}
               label={prefs.readAloud ? t("listen.stopReading") : t("listen.readAloud")}
               active={prefs.readAloud}
-              onPress={() => {
-                if (prefs.readAloud) Speech.stop();
-                updatePrefs({ readAloud: !prefs.readAloud });
-              }}
+              onPress={toggleReadAloud}
             />
           }
         />
@@ -389,6 +432,7 @@ export default function Listen() {
           label={t("listen.larger")}
           onPress={() => updatePrefs({ fontIndex: Math.min(FONT_SCALES.length - 1, prefs.fontIndex + 1) })}
         />
+        {!features.tts && <IconButton icon="person-outline" label={t("voice.title")} onPress={() => setVoicePicker(true)} />}
         <View style={{ flex: 1 }} />
         <Button
           title={prefs.showOriginal ? t("listen.hideOriginal") : t("listen.showOriginal")}
@@ -399,6 +443,7 @@ export default function Listen() {
         <IconButton icon={copied ? "checkmark" : "copy-outline"} label={t("listen.copyTranscript")} onPress={copyTranscript} />
       </View>
 
+      <VoiceSheet visible={voicePicker} onClose={() => setVoicePicker(false)} lang={target.code} voice={voice} />
       <OptionSheet
         visible={langPicker}
         onClose={() => setLangPicker(false)}

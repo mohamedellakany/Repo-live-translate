@@ -29,6 +29,14 @@ const schema = z.object({
   ),
   GEMINI_API_KEY: optional,
   GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
+  // Natural read-aloud voice for listeners (Gemini TTS, uses GEMINI_API_KEY). Set TTS_ENABLED=false to use the phones' own voices.
+  TTS_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() !== "false"),
+  // The lite model starts speaking in ~0.5 s, so the voice keeps up with live captions.
+  TTS_MODEL: z.string().default("gemini-3.8-flash-lite-tts"),
+  TTS_VOICE: z.string().default("Charon"),
   // Summarize every session automatically when it ends (set to "false" to only summarize on request).
   AUTO_SUMMARY: z
     .string()
@@ -82,6 +90,8 @@ export const features = {
   googleSignIn: config.googleClientIds.length > 0,
   email: !!config.SMTP_HOST,
   summaries: summaryProvider !== null,
+  /** Natural read-aloud voice (see tts.ts). */
+  tts: !!config.GEMINI_API_KEY && config.TTS_ENABLED,
 };
 
 if (

@@ -5,6 +5,7 @@ import { userFromToken } from "./auth.js";
 import { library, sessions, users, type TranslationMode, type UserRow } from "./db.js";
 import { DEFAULT_SOURCE, DEFAULT_TARGET, isSourceLanguage, isTargetLanguage, TARGET_LANGUAGES } from "./languages.js";
 import { summarizeEndedSession } from "./summary.js";
+import { MAX_TTS_TEXT, streamSpeech, ttsEnabled } from "./tts.js";
 import { describeTranslationError, translator } from "./translation/index.js";
 
 /* ============================================================================
@@ -14,10 +15,13 @@ import { describeTranslationError, translator } from "./translation/index.js";
  *                     speaker:partial {seq, text}      interim recognition result
  *                     speaker:final {seq, text}        finalized utterance
  *                     speaker:stop (ack)
- * Listener -> server  listener:join {username, lang, pin?} (ack)
+ * Listener -> server  listener:join {username, lang, pin?, audio?} (ack)
+ *                     listener:audio {on}               turn read-aloud audio on/off
  *                     listener:leave
  * Server -> clients   caption:source {seq, text, isFinal}
  *                     caption:translation {seq, lang, text, isFinal, error?}
+ *                     caption:audio {seq, lang, data}   read-aloud speech, raw 16-bit PCM chunks (TTS_SAMPLE_RATE, mono)
+ *                     caption:audio {seq, lang, end}    that sentence's audio is complete (or failed)
  *                     speaker:status {live, reconnecting, sessionId, title, sourceLang, private, revisit}
  *                     room:stats {listeners}
  *                     listener:pin_required             (a private session started; re-join with a PIN)
@@ -41,6 +45,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const roomName = (speakerId: string) => `room:${speakerId}`;
 const langRoom = (speakerId: string, lang: string) => `room:${speakerId}:${lang}`;
 const audienceRoom = (speakerId: string) => `audience:${speakerId}`;
+/** Listeners of one language who turned read-aloud on. */
+const audioRoom = (speakerId: string, lang: string) => `audio:${speakerId}:${lang}`;
 
 interface SegmentState {
   seq: number;
@@ -148,7 +154,10 @@ function maybeDisposeRoom(room: Room) {
 function leaveListenerRooms(socket: Socket, speakerId: string) {
   socket.leave(roomName(speakerId));
   socket.leave(audienceRoom(speakerId));
-  for (const lang of TARGET_LANGUAGES) socket.leave(langRoom(speakerId, lang));
+  for (const lang of TARGET_LANGUAGES) {
+    socket.leave(langRoom(speakerId, lang));
+    socket.leave(audioRoom(speakerId, lang));
+  }
 }
 
 /** Add the live session to a signed-in listener's library (the speaker controls whether they can reopen it). */
@@ -258,6 +267,7 @@ async function translateFinal(room: Room, sessionId: string, seq: number, text: 
           const translated = await translator.translate({ kind: "final", text, from: room.sourceLang, to: lang, context, meter: room.meter });
           translations[lang] = translated;
           io.to(langRoom(room.speakerId, lang)).emit("caption:translation", { seq, lang, text: translated, isFinal: true });
+          void sendSpeech(room, seq, lang, translated);
           return;
         } catch (err) {
           console.warn(`[translate:final] attempt ${attempt + 1}: ${describeTranslationError(err)}`);
@@ -267,6 +277,22 @@ async function translateFinal(room: Room, sessionId: string, seq: number, text: 
     }),
   );
   sessions.saveSegment(sessionId, seq, text, translations);
+}
+
+/**
+ * Voice a finished sentence for listeners who turned read-aloud on, streaming audio as it's generated
+ * so they hear it about a second after reading it. Nothing is generated when nobody is listening.
+ */
+async function sendSpeech(room: Room, seq: number, lang: string, text: string) {
+  const name = audioRoom(room.speakerId, lang);
+  if (!ttsEnabled || !text || text.length > MAX_TTS_TEXT || !io.sockets.adapter.rooms.get(name)?.size) return;
+  try {
+    await streamSpeech(text, lang, (data) => io.to(name).emit("caption:audio", { seq, lang, data }));
+  } catch (err) {
+    console.warn(`[tts] ${(err as Error).message}`);
+  } finally {
+    io.to(name).emit("caption:audio", { seq, lang, end: true });
+  }
 }
 
 /** A listener chose a language earlier lines weren't translated into: fill in the most recent ones. */
@@ -307,6 +333,7 @@ const joinSchema = z.object({
   username: z.string().trim().min(1).max(40),
   lang: z.string().default(DEFAULT_TARGET),
   pin: z.string().trim().max(8).optional().nullable(),
+  audio: z.boolean().optional(),
 });
 
 type Ack = (res: Record<string, unknown>) => void;
@@ -460,7 +487,7 @@ function registerListenerHandlers(socket: Socket) {
     const speakerInfo = { username: speaker.username, displayName: speaker.display_name };
 
     leaveCurrent();
-    const { lang, pin } = parsed.data;
+    const { lang, pin, audio } = parsed.data;
     const room = getOrCreateRoom(speaker);
 
     // Private session: require the PIN (unless this socket already entered it for this session).
@@ -474,6 +501,7 @@ function registerListenerHandlers(socket: Socket) {
     socket.data.listeningTo = speaker.id;
     socket.data.listenLang = lang;
     socket.join([roomName(speaker.id), audienceRoom(speaker.id), langRoom(speaker.id, lang)]);
+    if (audio) socket.join(audioRoom(speaker.id, lang));
     recordAttendance(socket, room);
 
     // Catch the listener up: recent finalized lines plus anything being spoken right now.
@@ -492,6 +520,14 @@ function registerListenerHandlers(socket: Socket) {
 
     broadcastStats(room);
     ack({ ok: true, speaker: speakerInfo, status: statusPayload(room), listeners: listenerCount(room), history });
+  });
+
+  socket.on("listener:audio", (raw) => {
+    const speakerId: string | undefined = socket.data.listeningTo;
+    const lang: string | undefined = socket.data.listenLang;
+    if (!speakerId || !lang) return;
+    if ((raw as { on?: unknown })?.on === true) socket.join(audioRoom(speakerId, lang));
+    else socket.leave(audioRoom(speakerId, lang));
   });
 
   socket.on("listener:leave", leaveCurrent);
