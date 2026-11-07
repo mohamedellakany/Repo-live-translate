@@ -74,7 +74,7 @@ class SpeechJob {
             {
               type: "text",
               text,
-              annotations: [{ type: "speech_metadata", style: "natural, calm and clear, at a normal speaking pace" }],
+              annotations: [{ type: "speech_metadata", style: "natural and clear, at a brisk pace like a live interpreter" }],
             },
           ],
         },

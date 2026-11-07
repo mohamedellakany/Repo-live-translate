@@ -5,6 +5,7 @@ import { userFromToken } from "./auth.js";
 import { library, sessions, users, type TranslationMode, type UserRow } from "./db.js";
 import { DEFAULT_SOURCE, DEFAULT_TARGET, isSourceLanguage, isTargetLanguage, TARGET_LANGUAGES } from "./languages.js";
 import { summarizeEndedSession } from "./summary.js";
+import { settledPhraseEnd, toWords } from "./phrases.js";
 import { MAX_TTS_TEXT, streamSpeech, ttsEnabled } from "./tts.js";
 import { describeTranslationError, translator } from "./translation/index.js";
 
@@ -20,8 +21,10 @@ import { describeTranslationError, translator } from "./translation/index.js";
  *                     listener:leave
  * Server -> clients   caption:source {seq, text, isFinal}
  *                     caption:translation {seq, lang, text, isFinal, error?}
- *                     caption:audio {seq, lang, data}   read-aloud speech, raw 16-bit PCM chunks (TTS_SAMPLE_RATE, mono)
- *                     caption:audio {seq, lang, end}    that sentence's audio is complete (or failed)
+ *                     caption:audio {seq, part, lang}         a voiced part is coming (keeps parts in order)
+ *                     caption:audio {seq, part, lang, data}   read-aloud speech, raw 16-bit PCM chunks (TTS_SAMPLE_RATE, mono)
+ *                     caption:audio {seq, part, lang, end}    that part's audio is complete (or failed)
+ *                     Parts: phrases voiced while the sentence is still being spoken, then the rest of it.
  *                     speaker:status {live, reconnecting, sessionId, title, sourceLang, private, revisit}
  *                     room:stats {listeners}
  *                     listener:pin_required             (a private session started; re-join with a PIN)
@@ -57,6 +60,11 @@ interface SegmentState {
   translatedVersion: Map<string, number>;
   translation: Map<string, string>;
   lastRequestAt: Map<string, number>;
+  /** Read-aloud: the previous interim transcript, how many of its words were voiced, and the phrases voiced so far. */
+  prevWords: string[];
+  voicedWords: number;
+  voicedPhrases: string[];
+  parts: number;
 }
 
 interface Room {
@@ -258,7 +266,8 @@ async function pumpPartial(room: Room, seg: SegmentState, lang: string) {
   }
 }
 
-async function translateFinal(room: Room, sessionId: string, seq: number, text: string, context: string[]) {
+/** `voice`: read-aloud languages that get this whole sentence voiced (part 0, already announced). */
+async function translateFinal(room: Room, sessionId: string, seq: number, text: string, context: string[], voice: Set<string>) {
   const translations: Record<string, string> = {};
   await Promise.all(
     activeTargetLangs(room).map(async (lang) => {
@@ -267,31 +276,60 @@ async function translateFinal(room: Room, sessionId: string, seq: number, text: 
           const translated = await translator.translate({ kind: "final", text, from: room.sourceLang, to: lang, context, meter: room.meter });
           translations[lang] = translated;
           io.to(langRoom(room.speakerId, lang)).emit("caption:translation", { seq, lang, text: translated, isFinal: true });
-          void sendSpeech(room, seq, lang, translated);
+          if (voice.has(lang)) void sendSpeech(room, seq, 0, lang, translated);
           return;
         } catch (err) {
           console.warn(`[translate:final] attempt ${attempt + 1}: ${describeTranslationError(err)}`);
         }
       }
       io.to(langRoom(room.speakerId, lang)).emit("caption:translation", { seq, lang, text: "", isFinal: true, error: true });
+      if (voice.has(lang)) void sendSpeech(room, seq, 0, lang, ""); // close the announced part
     }),
   );
   sessions.saveSegment(sessionId, seq, text, translations);
 }
 
+/** Languages with at least one listener who turned read-aloud on (nothing is voiced for the others). */
+function audioLangs(room: Room): string[] {
+  if (!ttsEnabled) return [];
+  return TARGET_LANGUAGES.filter((lang) => (io.sockets.adapter.rooms.get(audioRoom(room.speakerId, lang))?.size ?? 0) > 0);
+}
+
+/** Tell read-aloud listeners a part is coming, so the app keeps parts in order while it's translated and voiced. */
+function announcePart(room: Room, seq: number, part: number, langs: string[]) {
+  for (const lang of langs) io.to(audioRoom(room.speakerId, lang)).emit("caption:audio", { seq, part, lang });
+}
+
 /**
- * Voice a finished sentence for listeners who turned read-aloud on, streaming audio as it's generated
- * so they hear it about a second after reading it. Nothing is generated when nobody is listening.
+ * Voice one part of a sentence (a phrase, or the rest of the sentence) for read-aloud listeners:
+ * announce it now, then translate it and stream the speech as it's generated.
  */
-async function sendSpeech(room: Room, seq: number, lang: string, text: string) {
+function voicePart(room: Room, seq: number, part: number, langs: string[], text: string, context: string[]) {
+  announcePart(room, seq, part, langs);
+  for (const lang of langs) {
+    void (async () => {
+      let translated = "";
+      try {
+        translated = await translator.translate({ kind: "final", text, from: room.sourceLang, to: lang, context, meter: room.meter });
+      } catch (err) {
+        console.warn(`[translate:phrase] ${describeTranslationError(err)}`);
+      }
+      await sendSpeech(room, seq, part, lang, translated);
+    })();
+  }
+}
+
+/** Stream speech for an announced part, then close it (also when there's nothing to say or it failed). */
+async function sendSpeech(room: Room, seq: number, part: number, lang: string, text: string) {
   const name = audioRoom(room.speakerId, lang);
-  if (!ttsEnabled || !text || text.length > MAX_TTS_TEXT || !io.sockets.adapter.rooms.get(name)?.size) return;
   try {
-    await streamSpeech(text, lang, (data) => io.to(name).emit("caption:audio", { seq, lang, data }));
+    if (text && text.length <= MAX_TTS_TEXT) {
+      await streamSpeech(text, lang, (data) => io.to(name).emit("caption:audio", { seq, part, lang, data }));
+    }
   } catch (err) {
     console.warn(`[tts] ${(err as Error).message}`);
   } finally {
-    io.to(name).emit("caption:audio", { seq, lang, end: true });
+    io.to(name).emit("caption:audio", { seq, part, lang, end: true });
   }
 }
 
@@ -418,6 +456,10 @@ function registerSpeakerHandlers(socket: Socket) {
         translatedVersion: new Map(),
         translation: new Map(),
         lastRequestAt: new Map(),
+        prevWords: [],
+        voicedWords: 0,
+        voicedPhrases: [],
+        parts: 0,
       };
       room.segments.set(seq, seg);
     } else {
@@ -427,6 +469,19 @@ function registerSpeakerHandlers(socket: Socket) {
     }
     io.to(roomName(room.speakerId)).emit("caption:source", { seq, text, isFinal: false });
     for (const lang of activeTargetLangs(room)) void pumpPartial(room, seg, lang);
+
+    // Read-aloud keeps pace with the speaker: voice phrases that stopped changing without waiting for the sentence to end.
+    const words = toWords(text);
+    const langs = audioLangs(room);
+    const end = langs.length ? settledPhraseEnd(seg.prevWords, words, seg.voicedWords) : null;
+    if (end !== null) {
+      const phrase = words.slice(seg.voicedWords, end).join(" ");
+      const context = [...room.recentFinals, ...seg.voicedPhrases];
+      seg.voicedWords = end;
+      seg.voicedPhrases.push(phrase);
+      voicePart(room, seq, seg.parts++, langs, phrase, context);
+    }
+    seg.prevWords = words;
   });
 
   socket.on("speaker:final", (raw) => {
@@ -449,7 +504,19 @@ function registerSpeakerHandlers(socket: Socket) {
 
     const context = room.recentFinals.slice();
     room.recentFinals = [...room.recentFinals, clean].slice(-CONTEXT_SENTENCES);
-    const saving = translateFinal(room, room.sessionId!, seq, clean, context)
+
+    // Read-aloud: if phrases were already voiced, voice just the rest; otherwise the whole sentence
+    // reuses the caption translation below (no extra translation request).
+    const langs = audioLangs(room);
+    const voiceWhole = new Set<string>();
+    if (langs.length && seg && seg.voicedWords > 0) {
+      const rest = toWords(clean).slice(seg.voicedWords).join(" ");
+      if (rest) voicePart(room, seq, seg.parts, langs, rest, [...context, ...seg.voicedPhrases]);
+    } else if (langs.length) {
+      announcePart(room, seq, 0, langs);
+      for (const lang of langs) voiceWhole.add(lang);
+    }
+    const saving = translateFinal(room, room.sessionId!, seq, clean, context, voiceWhole)
       .catch((err) => console.error("[final] failed to persist segment", err))
       .finally(() => room.savingSegments.delete(saving));
     room.savingSegments.add(saving);

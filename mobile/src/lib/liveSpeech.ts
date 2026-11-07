@@ -1,12 +1,15 @@
 import { AudioContext, type AudioBufferSourceNode } from "react-native-audio-api";
 
 /**
- * Plays the server's streamed read-aloud speech (`caption:audio` events) as it arrives, so listeners
- * hear a sentence about a second after reading it. Sentences play in order, one after another.
+ * Plays the server's streamed read-aloud speech (`caption:audio` events) as it arrives. The server voices
+ * phrases while the speaker is still talking, so the voice stays about two seconds behind them.
+ * Parts play in order (sentence, then phrase); if the voice falls too far behind, it skips ahead.
  * Works on iOS, Android and web (react-native-audio-api exposes the browser's Web Audio API on web).
  */
 export interface AudioEvent {
   seq: number;
+  /** Phrase number within the sentence. An event with neither data nor end announces the part. */
+  part?: number;
   lang: string;
   /** Raw 16-bit signed little-endian PCM, mono. */
   data?: ArrayBuffer | ArrayBufferView;
@@ -18,6 +21,10 @@ const SAMPLE_RATE = 24_000; // matches the server's TTS_SAMPLE_RATE
 const JITTER_SECONDS = 0.12;
 /** Give up on a sentence whose audio stopped arriving (e.g. the server failed mid-way). */
 const STALL_MS = 8_000;
+/** If more than this much speech is queued when a new part starts, drop the backlog to stay live. */
+const MAX_BACKLOG_SECONDS = 6;
+/** Order key: sentence first, then phrase within it. */
+const partKey = (e: AudioEvent) => e.seq * 1000 + (e.part ?? 0);
 
 interface Stream {
   pending: Float32Array<ArrayBuffer>[];
@@ -42,6 +49,13 @@ export class LiveSpeechPlayer {
 
   /** Drop everything queued or playing, but keep the audio output ready (e.g. when the language changes). */
   reset() {
+    this.stopScheduled();
+    this.streams.clear();
+    this.current = null;
+  }
+
+  /** Silence everything already scheduled (the queue of upcoming parts is kept). */
+  private stopScheduled() {
     for (const s of this.sources) {
       try {
         s.stop();
@@ -50,8 +64,6 @@ export class LiveSpeechPlayer {
       }
     }
     this.sources.clear();
-    this.streams.clear();
-    this.current = null;
     this.nextTime = 0;
   }
 
@@ -64,10 +76,11 @@ export class LiveSpeechPlayer {
 
   onAudio(event: AudioEvent) {
     if (!this.ctx) return;
-    let stream = this.streams.get(event.seq);
+    const key = partKey(event);
+    let stream = this.streams.get(key);
     if (!stream) {
       stream = { pending: [], ended: false, carry: null, lastActivity: Date.now() };
-      this.streams.set(event.seq, stream);
+      this.streams.set(key, stream);
     }
     stream.lastActivity = Date.now();
     if (event.data) stream.pending.push(toSamples(stream, event.data));
@@ -81,6 +94,8 @@ export class LiveSpeechPlayer {
       if (this.current === null) {
         if (!this.streams.size) return;
         this.current = Math.min(...this.streams.keys());
+        // Starting a new part while far behind: skip what's still queued so the voice stays live.
+        if (this.ctx && this.nextTime - this.ctx.currentTime > MAX_BACKLOG_SECONDS) this.stopScheduled();
       }
       const stream = this.streams.get(this.current);
       if (!stream) {
