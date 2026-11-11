@@ -12,7 +12,7 @@ const schema = z.object({
   JWT_SECRET: z.string().min(1).default("dev-insecure-secret"),
   JWT_EXPIRES_IN: z.string().default("30d"),
   DATABASE_PATH: z.string().default("./data/app.db"),
-  APP_NAME: z.string().default("Live Translate"),
+  APP_NAME: z.string().default("Lisanova"),
 
   TRANSLATION_PROVIDER: z.enum(["free", "google", "deepl", "claude", "mock"]).default("free"),
   GOOGLE_TRANSLATE_API_KEY: optional,

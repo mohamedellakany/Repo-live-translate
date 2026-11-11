@@ -17,7 +17,7 @@ export const ar: Record<TKey, string> = {
   "common.offline": "أنت غير متصل. تحقق من الاتصال وحاول مرة أخرى.",
   "common.connecting": "جارٍ الاتصال…",
   "common.notFound": "الصفحة غير موجودة",
-  "common.appName": "الترجمة الفورية",
+  "common.appName": "ليسانوفا",
 
   "badge.live": "مباشر",
   "badge.reconnecting": "إعادة الاتصال",
@@ -151,7 +151,7 @@ export const ar: Record<TKey, string> = {
   "shareCard.copyId": "نسخ المعرّف",
   "shareCard.shareLink": "مشاركة الرابط",
   "shareCard.pinNote": "جلسة خاصة · PIN {pin}",
-  "shareCard.message": "تابع الترجمة المباشرة لـ {name}. افتح {url} أو أدخل معرّف المتحدث ‎@{username}‎ في تطبيق الترجمة الفورية.",
+  "shareCard.message": "تابع الترجمة المباشرة لـ {name}. افتح {url} أو أدخل معرّف المتحدث ‎@{username}‎ في تطبيق ليسانوفا.",
 
   "speech.notAllowed": "تم رفض إذن الميكروفون أو التعرّف على الكلام. فعّله من الإعدادات وحاول مرة أخرى.",
   "speech.serviceNotAllowed": "التعرّف على الكلام غير متاح على هذا الجهاز أو المتصفح.",

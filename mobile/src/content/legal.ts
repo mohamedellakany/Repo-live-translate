@@ -4,8 +4,8 @@
  */
 import type { UiLang } from "@/i18n";
 
-export const LEGAL_UPDATED = "2026-10-29";
-const COMPANY = process.env.EXPO_PUBLIC_COMPANY_NAME || "Live Translate";
+export const LEGAL_UPDATED = "2026-11-10";
+const COMPANY = process.env.EXPO_PUBLIC_COMPANY_NAME || "Lisanova";
 const EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL || "support@your-domain.com";
 
 export interface LegalSection {
@@ -23,7 +23,7 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
   en: [
     {
       heading: "Who we are",
-      body: "{company} (\"we\", \"us\") provides the Live Translate app and website, which turns a speaker's live speech into text and translates it for listeners in real time. Contact: {email}.",
+      body: "{company} (\"we\", \"us\") provides the Lisanova app and website, which turns a speaker's live speech into text and translates it for listeners in real time. Contact: {email}.",
     },
     {
       heading: "Information we collect",
@@ -69,7 +69,7 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
   ar: [
     {
       heading: "من نحن",
-      body: "تقدّم {company} (\"نحن\") تطبيق وموقع الترجمة الفورية، الذي يحوّل كلام المتحدث المباشر إلى نص ويترجمه للمستمعين لحظياً. للتواصل: {email}.",
+      body: "تقدّم {company} (\"نحن\") تطبيق وموقع ليسانوفا للترجمة الفورية، الذي يحوّل كلام المتحدث المباشر إلى نص ويترجمه للمستمعين لحظياً. للتواصل: {email}.",
     },
     {
       heading: "المعلومات التي نجمعها",
@@ -118,11 +118,11 @@ const TERMS: Record<UiLang, LegalSection[]> = {
   en: [
     {
       heading: "Agreement",
-      body: "By using Live Translate you agree to these Terms. If you use it on behalf of an organization, you confirm you're authorized to accept them for it. Contact: {email}.",
+      body: "By using Lisanova you agree to these Terms. If you use it on behalf of an organization, you confirm you're authorized to accept them for it. Contact: {email}.",
     },
     {
       heading: "The service",
-      body: "Live Translate converts speech to text and machine-translates it in real time. Recognition and translation are automatic and can be inaccurate, incomplete or delayed. Don't rely on them where errors could cause harm (for example medical, legal or safety-critical situations) without a qualified human interpreter.",
+      body: "Lisanova converts speech to text and machine-translates it in real time. Recognition and translation are automatic and can be inaccurate, incomplete or delayed. Don't rely on them where errors could cause harm (for example medical, legal or safety-critical situations) without a qualified human interpreter.",
     },
     {
       heading: "Accounts",
@@ -160,7 +160,7 @@ const TERMS: Record<UiLang, LegalSection[]> = {
   ar: [
     {
       heading: "الاتفاقية",
-      body: "باستخدامك لتطبيق الترجمة الفورية فإنك توافق على هذه الشروط. إذا كنت تستخدمه نيابةً عن جهة ما، فأنت تؤكد أنك مخوّل بقبولها نيابةً عنها. للتواصل: {email}.",
+      body: "باستخدامك لتطبيق ليسانوفا فإنك توافق على هذه الشروط. إذا كنت تستخدمه نيابةً عن جهة ما، فأنت تؤكد أنك مخوّل بقبولها نيابةً عنها. للتواصل: {email}.",
     },
     {
       heading: "الخدمة",

@@ -16,7 +16,7 @@ export const en = {
   "common.offline": "You're offline. Check your connection and try again.",
   "common.connecting": "Connecting…",
   "common.notFound": "Page not found",
-  "common.appName": "Live Translate",
+  "common.appName": "Lisanova",
 
   // status badges
   "badge.live": "LIVE",
@@ -159,7 +159,7 @@ export const en = {
   "shareCard.copyId": "Copy ID",
   "shareCard.shareLink": "Share link",
   "shareCard.pinNote": "Private session · PIN {pin}",
-  "shareCard.message": "Follow {name}'s live translation. Open {url} or enter speaker ID @{username} in Live Translate.",
+  "shareCard.message": "Follow {name}'s live translation. Open {url} or enter speaker ID @{username} in Lisanova.",
 
   // speech errors
   "speech.notAllowed": "Microphone or speech recognition permission was denied. Enable it in your settings and try again.",

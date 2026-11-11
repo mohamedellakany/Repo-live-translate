@@ -10,7 +10,7 @@ const iosUrlScheme = iosClientId ? `com.googleusercontent.apps.${iosClientId.rep
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "Live Translate",
+  name: "Lisanova",
   slug: "live-translate",
   scheme: "livetranslate",
   version: "1.0.0",
@@ -20,7 +20,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   userInterfaceStyle: "automatic",
   backgroundColor: BG,
   ios: {
-    bundleIdentifier: "com.livetranslate.app",
+    // "com.livetranslate.app" is registered to another Apple developer, so iOS uses a unique identifier.
+    bundleIdentifier: "com.ellakany.livetranslate",
     supportsTablet: true,
     infoPlist: {
       UIBackgroundModes: ["audio"],
@@ -41,7 +42,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   web: {
     favicon: "./assets/favicon.png",
     output: "single",
-    name: "Live Translate",
+    name: "Lisanova",
     themeColor: BG,
     backgroundColor: BG,
   },
@@ -52,8 +53,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-speech-recognition",
       {
         microphonePermission:
-          "Live Translate uses the microphone to transcribe what you say so your listeners can read the translation.",
-        speechRecognitionPermission: "Live Translate uses speech recognition to turn your speech into text for live translation.",
+          "Lisanova uses the microphone to transcribe what you say so your listeners can read the translation.",
+        speechRecognitionPermission: "Lisanova uses speech recognition to turn your speech into text for live translation.",
         androidSpeechServicePackages: ["com.google.android.googlequicksearchbox", "com.google.android.as"],
       },
     ],

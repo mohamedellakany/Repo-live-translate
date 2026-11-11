@@ -13,7 +13,7 @@ set -euo pipefail
 
 MOBILE="$(cd "$(dirname "$0")/.." && pwd)"
 APK_DIR="${APK_DIR:-$HOME/Downloads/Apps}"
-APK_NAME="live-translate.apk"
+APK_NAME="lisanova.apk"
 export EXPO_PUBLIC_API_URL="${API_URL:-https://api.192-18-128-201.sslip.io}"
 export EXPO_PUBLIC_WEB_URL="${WEB_URL:-https://app.192-18-128-201.sslip.io}"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
@@ -52,6 +52,17 @@ echo "==> Building the APK for $EXPO_PUBLIC_API_URL (a few minutes; the first bu
 # ---- 3. Copy ----
 mkdir -p "$APK_DIR"
 cp android/app/build/outputs/apk/release/app-release.apk "$APK_DIR/$APK_NAME"
+
+# macOS can't read icons from Android files, so Finder shows a blank document: attach the app icon to the file.
+if command -v osascript >/dev/null 2>&1; then
+  osascript -l JavaScript - "$MOBILE/assets/splash-icon.png" "$APK_DIR/$APK_NAME" >/dev/null 2>&1 <<'JXA' || true
+ObjC.import("AppKit");
+function run(argv) {
+  const image = $.NSImage.alloc.initWithContentsOfFile(argv[0]);
+  return $.NSWorkspace.sharedWorkspace.setIconForFileOptions(image, argv[1], 0);
+}
+JXA
+fi
 
 echo
 echo "Done: $APK_DIR/$APK_NAME"

@@ -1,4 +1,4 @@
-# Live Translate
+# Lisanova
 
 Real-time speech translation for meetings, lectures and conversations.
 A **speaker** talks (in Arabic by default, or one of 13 other languages), and any number of **listeners** read the translation live, in their own language, on their phone or browser.
@@ -62,7 +62,7 @@ npx expo start --web --port 8082
 Terminal 1 — backend:
 cd ~/Downloads/Apps/Repo-live-translate/server
 npm run dev
-Wait for Live Translate server listening on http://localhost:4000.
+Wait for Lisanova server listening on http://localhost:4000.
 
 Terminal 2 — app:
 cd ~/Downloads/Apps/Repo-live-translate/mobile
@@ -140,7 +140,7 @@ Listeners on a phone can also open the web URL `http://<your-computer-ip>:8082`.
 
 ### Build an Android APK for testing
 
-Builds on this Mac (no Expo account needed) and saves the APK as `~/Downloads/Apps/live-translate.apk`, replacing the previous one:
+Builds on this Mac (no Expo account needed) and saves the APK as `~/Downloads/Apps/lisanova.apk`, replacing the previous one:
 
 ```bash
 cd mobile
@@ -150,7 +150,7 @@ npm run build:apk
 - Needs Java 17 (`brew install openjdk@17`) and the Android SDK (`~/Library/Android/sdk`). The script finds both automatically.
 - The app talks to the live server by default. Override with `API_URL=... WEB_URL=...`, or change the folder with `APK_DIR=...`.
 - After changing `mobile/app.config.ts` (name, icons, permissions), run `CLEAN=1 npm run build:apk`.
-- Install it by opening the file on the phone, or over USB: `~/Library/Android/sdk/platform-tools/adb install -r ~/Downloads/Apps/live-translate.apk`.
+- Install it by opening the file on the phone, or over USB: `~/Library/Android/sdk/platform-tools/adb install -r ~/Downloads/Apps/lisanova.apk`.
 - It's signed with a test key, so Google sign-in doesn't work in it. Use email and password.
 
 ### Styling and themes
