@@ -145,6 +145,10 @@ export default function Home() {
       </Card>
 
       <View style={styles.footer}>
+        <Link href="/contact" style={styles.footerLink}>
+          {t("home.contact")}
+        </Link>
+        <Text style={styles.footerDot}>·</Text>
         <Link href="/privacy" style={styles.footerLink}>
           {t("home.privacy")}
         </Link>

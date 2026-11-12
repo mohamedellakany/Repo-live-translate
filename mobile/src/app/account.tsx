@@ -120,6 +120,7 @@ export default function Account() {
         <Text style={styles.section}>{t("account.legal")}</Text>
         <SelectRow icon="shield-checkmark-outline" label={t("legal.privacyTitle")} value="" onPress={() => router.push("/privacy")} />
         <SelectRow icon="document-text-outline" label={t("legal.termsTitle")} value="" onPress={() => router.push("/terms")} />
+        <SelectRow icon="mail-outline" label={t("contact.title")} value="" onPress={() => router.push("/contact")} />
       </Card>
 
       <Card style={{ borderColor: colors.danger }}>
