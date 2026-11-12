@@ -33,15 +33,16 @@ export function verifySignupToken(token: string): GoogleProfile | null {
 }
 
 /** Returns the user for a valid session token, or null for missing/invalid/expired tokens. */
-export function userFromToken(token: string | undefined | null): UserRow | null {
+export async function userFromToken(token: string | undefined | null): Promise<UserRow | null> {
   if (!token) return null;
+  let payload: TokenPayload & { typ?: string };
   try {
-    const payload = jwt.verify(token, config.JWT_SECRET) as TokenPayload & { typ?: string };
-    if (payload.typ) return null; // signup tokens can't be used as sessions
-    return users.byId(payload.sub) ?? null;
+    payload = jwt.verify(token, config.JWT_SECRET) as TokenPayload & { typ?: string };
   } catch {
     return null;
   }
+  if (payload.typ) return null; // signup tokens can't be used as sessions
+  return (await users.byId(payload.sub)) ?? null;
 }
 
 declare global {
@@ -57,8 +58,8 @@ const bearer = (req: Request) => {
   return h?.startsWith("Bearer ") ? h.slice(7) : null;
 };
 
-export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const user = userFromToken(bearer(req));
+export async function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const user = await userFromToken(bearer(req));
   if (!user) return res.status(401).json({ error: "Authentication required" });
   req.user = user;
   next();

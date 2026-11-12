@@ -30,12 +30,15 @@ const emailSchema = z.email("Enter a valid email").trim().toLowerCase();
 const codeSchema = z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code");
 
 const firstIssue = (e: z.ZodError) => e.issues[0]?.message ?? "Invalid request";
+/** Two sign-ups racing for the same username/email: the database's unique index rejects the second. */
+const isDuplicate = (err: unknown) => (err as { code?: string }).code === "23505";
+const TAKEN = "That username or email is already registered";
 const session = (res: Response, user: UserRow, status = 200) =>
   res.status(status).json({ token: signToken(user.id), user: toPublicUser(user) });
 
 /** Issue + email a verification code. Failures to send are logged, not fatal, so sign-up still succeeds. */
 async function sendVerification(user: UserRow) {
-  const r = issueCode(user.id, "verify_email");
+  const r = await issueCode(user.id, "verify_email");
   if ("code" in r) {
     await sendCodeEmail(user.email, user.display_name, r.code, "verify_email").catch((err) =>
       console.error("[mail] verification email failed", err),
@@ -53,10 +56,16 @@ authRouter.post("/register", authLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
   const { username, email, displayName, password } = parsed.data;
 
-  if (users.byUsername(username)) return res.status(409).json({ error: "That username is taken" });
-  if (users.byEmail(email)) return res.status(409).json({ error: "An account with this email already exists" });
+  if (await users.byUsername(username)) return res.status(409).json({ error: "That username is taken" });
+  if (await users.byEmail(email)) return res.status(409).json({ error: "An account with this email already exists" });
 
-  const user = users.create({ username, email, displayName, passwordHash: await bcrypt.hash(password, 10) });
+  let user: UserRow;
+  try {
+    user = await users.create({ username, email, displayName, passwordHash: await bcrypt.hash(password, 10) });
+  } catch (err) {
+    if (isDuplicate(err)) return res.status(409).json({ error: TAKEN });
+    throw err;
+  }
   await sendVerification(user);
   session(res, user, 201);
 });
@@ -66,7 +75,7 @@ authRouter.post("/login", authLimiter, async (req, res) => {
     .object({ login: z.string().trim().min(1, "Enter your username or email"), password: z.string().min(1, "Enter your password") })
     .safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
-  const user = users.byLogin(parsed.data.login.replace(/^@/, "").toLowerCase());
+  const user = await users.byLogin(parsed.data.login.replace(/^@/, "").toLowerCase());
   if (user && !user.password_hash) {
     return res.status(400).json({ error: "This account uses Google sign-in. Continue with Google, or reset your password to add one." });
   }
@@ -89,25 +98,26 @@ authRouter.post("/google", authLimiter, async (req, res) => {
     return res.status(401).json({ error: "Google sign-in failed. Please try again." });
   }
 
-  const linked = users.byGoogleSub(g.sub);
+  const linked = await users.byGoogleSub(g.sub);
   if (linked) return session(res, linked);
 
-  const byEmail = users.byEmail(g.email);
+  const byEmail = await users.byEmail(g.email);
   if (byEmail) {
     if (!g.emailVerified) return res.status(409).json({ error: "An account with this email already exists. Sign in with your password." });
-    users.linkGoogle(byEmail.id, g.sub);
-    return session(res, users.byId(byEmail.id)!);
+    await users.linkGoogle(byEmail.id, g.sub);
+    return session(res, (await users.byId(byEmail.id))!);
   }
 
   // New user: they still need to choose a speaker ID.
   const suggestion = g.email.split("@")[0].toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20);
+  const suggestionFree = suggestion.length >= 3 && !(await users.byUsername(suggestion));
   res.json({
     needsProfile: true,
     signupToken: signSignupToken(g),
     profile: {
       email: g.email,
       displayName: g.name,
-      suggestedUsername: suggestion.length >= 3 && !users.byUsername(suggestion) ? suggestion : "",
+      suggestedUsername: suggestionFree ? suggestion : "",
     },
   });
 });
@@ -119,19 +129,25 @@ authRouter.post("/google/complete", authLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
   const g = verifySignupToken(parsed.data.signupToken);
   if (!g) return res.status(401).json({ error: "Your Google sign-in expired. Please continue with Google again." });
-  if (users.byGoogleSub(g.sub) || users.byEmail(g.email)) {
+  if ((await users.byGoogleSub(g.sub)) || (await users.byEmail(g.email))) {
     return res.status(409).json({ error: "An account already exists for this Google account. Sign in instead." });
   }
-  if (users.byUsername(parsed.data.username)) return res.status(409).json({ error: "That username is taken" });
+  if (await users.byUsername(parsed.data.username)) return res.status(409).json({ error: "That username is taken" });
 
-  const user = users.create({
-    username: parsed.data.username,
-    email: g.email,
-    displayName: parsed.data.displayName,
-    passwordHash: null,
-    googleSub: g.sub,
-    emailVerified: false, // confirmed with an emailed one-time code
-  });
+  let user: UserRow;
+  try {
+    user = await users.create({
+      username: parsed.data.username,
+      email: g.email,
+      displayName: parsed.data.displayName,
+      passwordHash: null,
+      googleSub: g.sub,
+      emailVerified: false, // confirmed with an emailed one-time code
+    });
+  } catch (err) {
+    if (isDuplicate(err)) return res.status(409).json({ error: TAKEN });
+    throw err;
+  }
   await sendVerification(user);
   session(res, user, 201);
 });
@@ -148,16 +164,16 @@ authRouter.post("/verify-email/send", requireAuth, codeLimiter, async (req, res)
   res.json({ ok: true });
 });
 
-authRouter.post("/verify-email", requireAuth, codeLimiter, (req, res) => {
+authRouter.post("/verify-email", requireAuth, codeLimiter, async (req, res) => {
   const parsed = z.object({ code: codeSchema }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
   const user = req.user!;
   if (!user.email_verified) {
-    const result = verifyCode(user.id, "verify_email", parsed.data.code);
+    const result = await verifyCode(user.id, "verify_email", parsed.data.code);
     if (result !== "ok") return res.status(400).json({ error: CODE_ERRORS[result] });
-    users.setEmailVerified(user.id);
+    await users.setEmailVerified(user.id);
   }
-  res.json({ user: toPublicUser(users.byId(user.id)!) });
+  res.json({ user: toPublicUser((await users.byId(user.id))!) });
 });
 
 /* ----------------------------- password reset ---------------------------- */
@@ -165,9 +181,9 @@ authRouter.post("/verify-email", requireAuth, codeLimiter, (req, res) => {
 authRouter.post("/password/forgot", codeLimiter, async (req, res) => {
   const parsed = z.object({ email: emailSchema }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
-  const user = users.byEmail(parsed.data.email);
+  const user = await users.byEmail(parsed.data.email);
   if (user) {
-    const r = issueCode(user.id, "reset_password");
+    const r = await issueCode(user.id, "reset_password");
     if ("code" in r) {
       await sendCodeEmail(user.email, user.display_name, r.code, "reset_password").catch((err) =>
         console.error("[mail] reset email failed", err),
@@ -181,13 +197,13 @@ authRouter.post("/password/forgot", codeLimiter, async (req, res) => {
 authRouter.post("/password/reset", codeLimiter, async (req, res) => {
   const parsed = z.object({ email: emailSchema, code: codeSchema, password: passwordSchema }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
-  const user = users.byEmail(parsed.data.email);
+  const user = await users.byEmail(parsed.data.email);
   if (!user) return res.status(400).json({ error: CODE_ERRORS.invalid });
-  const result = verifyCode(user.id, "reset_password", parsed.data.code);
+  const result = await verifyCode(user.id, "reset_password", parsed.data.code);
   if (result !== "ok") return res.status(400).json({ error: CODE_ERRORS[result] });
-  users.setPassword(user.id, await bcrypt.hash(parsed.data.password, 10));
-  users.setEmailVerified(user.id); // receiving the code proves email ownership
-  session(res, users.byId(user.id)!);
+  await users.setPassword(user.id, await bcrypt.hash(parsed.data.password, 10));
+  await users.setEmailVerified(user.id); // receiving the code proves email ownership
+  session(res, (await users.byId(user.id))!);
 });
 
 /* -------------------------------- account -------------------------------- */
@@ -196,11 +212,11 @@ authRouter.get("/me", requireAuth, (req, res) => {
   res.json({ user: toPublicUser(req.user!) });
 });
 
-authRouter.patch("/me", requireAuth, (req, res) => {
+authRouter.patch("/me", requireAuth, async (req, res) => {
   const parsed = z.object({ displayName: displayNameSchema }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
-  users.updateDisplayName(req.user!.id, parsed.data.displayName);
-  res.json({ user: toPublicUser(users.byId(req.user!.id)!) });
+  await users.updateDisplayName(req.user!.id, parsed.data.displayName);
+  res.json({ user: toPublicUser((await users.byId(req.user!.id))!) });
 });
 
 /** Permanently delete the account, its sessions and transcripts (App Store requirement). */
@@ -215,7 +231,7 @@ authRouter.delete("/me", requireAuth, authLimiter, async (req, res) => {
   } else if (parsed.data.confirmUsername?.trim().replace(/^@/, "").toLowerCase() !== user.username) {
     return res.status(400).json({ error: "Type your username to confirm" });
   }
-  forceEndSpeaker(user.id);
-  users.remove(user.id);
+  await forceEndSpeaker(user.id);
+  await users.remove(user.id);
   res.status(204).end();
 });

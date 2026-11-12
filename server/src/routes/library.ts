@@ -25,10 +25,10 @@ const serialize = (r: LibraryRow) => ({
   hasSummary: !!r.summary,
 });
 
-libraryRouter.get("/", (req, res) => {
+libraryRouter.get("/", async (req, res) => {
   const limit = Math.min(Number(req.query.limit) || 50, 100);
   const offset = Math.max(Number(req.query.offset) || 0, 0);
-  res.json({ sessions: library.list(req.user!.id, limit, offset).map(serialize) });
+  res.json({ sessions: (await library.list(req.user!.id, limit, offset)).map(serialize) });
 });
 
 const claimSchema = z.object({ sessionId: z.string().min(1).max(64), lang: z.string().default(DEFAULT_TARGET) });
@@ -37,23 +37,23 @@ const claimSchema = z.object({ sessionId: z.string().min(1).max(64), lang: z.str
  * Add a session the user followed before signing in. The session ID is only ever sent to people
  * who were in the room (after the PIN check for private sessions), so knowing it proves attendance.
  */
-libraryRouter.post("/", (req, res) => {
+libraryRouter.post("/", async (req, res) => {
   const parsed = claimSchema.safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid request" });
-  const s = sessions.byId(parsed.data.sessionId);
-  const started = s ? new Date(`${s.started_at.replace(" ", "T")}Z`).getTime() : 0;
+  const s = await sessions.byId(parsed.data.sessionId);
+  const started = s ? Date.parse(s.started_at) : 0;
   if (!s || Date.now() - started > CLAIM_WINDOW_MS) return res.status(404).json({ error: "Session not found" });
   if (s.speaker_id !== req.user!.id) {
-    library.add(s.id, req.user!.id, isTargetLanguage(parsed.data.lang) ? parsed.data.lang : DEFAULT_TARGET);
+    await library.add(s.id, req.user!.id, isTargetLanguage(parsed.data.lang) ? parsed.data.lang : DEFAULT_TARGET);
   }
   res.status(204).end();
 });
 
-libraryRouter.get("/:id", (req, res) => {
-  const entry = library.entry(req.user!.id, req.params.id);
+libraryRouter.get("/:id", async (req, res) => {
+  const entry = await library.entry(req.user!.id, req.params.id);
   if (!entry) return res.status(404).json({ error: "Session not found" });
   // Listeners get the transcript in the language they read (falling back to the default one).
-  const segments = sessions.segments(entry.id).map((s) => {
+  const segments = (await sessions.segments(entry.id)).map((s) => {
     const lang = s.translations[entry.lang] !== undefined ? entry.lang : DEFAULT_TARGET;
     const translation = s.translations[lang] ?? null;
     // Without a translation, the original is read aloud in the speaker's language.
@@ -64,7 +64,7 @@ libraryRouter.get("/:id", (req, res) => {
 });
 
 /** Remove a session from the listener's own library (the speaker's copy is unaffected). */
-libraryRouter.delete("/:id", (req, res) => {
-  if (!library.remove(req.params.id, req.user!.id)) return res.status(404).json({ error: "Session not found" });
+libraryRouter.delete("/:id", async (req, res) => {
+  if (!(await library.remove(req.params.id, req.user!.id))) return res.status(404).json({ error: "Session not found" });
   res.status(204).end();
 });

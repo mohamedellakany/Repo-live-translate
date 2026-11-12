@@ -55,11 +55,11 @@ export function summarizeSession(sessionId: string, lang: string, waitFor: Promi
   if (running) return running;
   const job = (async () => {
     await Promise.allSettled(waitFor);
-    const session = sessions.byId(sessionId); // may have been deleted meanwhile
-    const segments = session ? sessions.segments(sessionId) : [];
+    const session = await sessions.byId(sessionId); // may have been deleted meanwhile
+    const segments = session ? await sessions.segments(sessionId) : [];
     if (!session || segments.length === 0) return null;
     const summary = await summarizeTranscript(segments, session.source_lang, lang);
-    sessions.saveSummary(sessionId, summary);
+    await sessions.saveSummary(sessionId, summary);
     return summary;
   })().finally(() => inFlight.delete(sessionId));
   inFlight.set(sessionId, job);

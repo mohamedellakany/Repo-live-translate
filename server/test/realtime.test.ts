@@ -1,14 +1,19 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { AddressInfo } from "node:net";
+import pg from "pg";
 import { io as connect, type Socket } from "socket.io-client";
 
 process.env.NODE_ENV = "test";
 process.env.TRANSLATION_PROVIDER = "mock";
-process.env.DATABASE_PATH = join(mkdtempSync(join(tmpdir(), "lt-")), "test.db");
+// A throwaway PostgreSQL database, wiped before every run. Never point this at real data.
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://localhost:54329/lisanova_test";
+{
+  const admin = new pg.Client({ connectionString: process.env.DATABASE_URL });
+  await admin.connect();
+  await admin.query("DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public;");
+  await admin.end();
+}
 
 const { createServer } = await import("node:http");
 const { Server } = await import("socket.io");
@@ -27,10 +32,11 @@ before(async () => {
   await new Promise<void>((r) => httpServer.listen(0, r));
   base = `http://localhost:${(httpServer.address() as AddressInfo).port}`;
 });
-after(() => {
+after(async () => {
   sockets.forEach((s) => s.disconnect());
   io.close();
   httpServer.close();
+  await (await import("../src/db.js")).pool.end();
 });
 
 /* -------------------------------- helpers -------------------------------- */

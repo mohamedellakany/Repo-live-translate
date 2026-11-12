@@ -11,6 +11,9 @@ const schema = z.object({
   CORS_ORIGINS: z.string().default("*"),
   JWT_SECRET: z.string().min(1).default("dev-insecure-secret"),
   JWT_EXPIRES_IN: z.string().default("30d"),
+  // PostgreSQL connection string (Neon: copy it from the project's "Connect" dialog).
+  DATABASE_URL: z.string().min(1, "DATABASE_URL is required (PostgreSQL connection string)"),
+  // Old SQLite database: only read by the one-time import script (npm run import-sqlite).
   DATABASE_PATH: z.string().default("./data/app.db"),
   APP_NAME: z.string().default("Lisanova"),
 

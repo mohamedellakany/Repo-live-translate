@@ -172,15 +172,23 @@ function leaveListenerRooms(socket: Socket, speakerId: string) {
 function recordAttendance(socket: Socket, room: Room) {
   const user: UserRow | undefined = socket.data.user;
   if (!user || !room.sessionId || user.id === room.speakerId) return;
-  library.add(room.sessionId, user.id, socket.data.listenLang ?? DEFAULT_TARGET);
+  library.add(room.sessionId, user.id, socket.data.listenLang ?? DEFAULT_TARGET).catch((err) => console.error("[db] attendance", err));
 }
 
-function endSession(room: Room) {
+/**
+ * End the live session. The room is reset immediately (so nothing leaks into the next session);
+ * the returned promise resolves once the session is marked ended in the database.
+ */
+function endSession(room: Room): Promise<void> {
   if (room.reconnectTimer) clearTimeout(room.reconnectTimer);
   room.reconnectTimer = null;
-  if (!room.sessionId) return;
-  sessions.end(room.sessionId, room.peakListeners, room.meter.chars);
-  summarizeEndedSession(room.sessionId, [...room.savingSegments]);
+  if (!room.sessionId) return Promise.resolve();
+  const sessionId = room.sessionId;
+  const saved = sessions.end(sessionId, room.peakListeners, room.meter.chars).then(
+    () => {},
+    (err) => console.error("[db] failed to end session", err),
+  );
+  summarizeEndedSession(sessionId, [...room.savingSegments, saved]);
   room.sessionId = null;
   room.title = null;
   room.pin = null;
@@ -190,6 +198,7 @@ function endSession(room: Room) {
   room.peakListeners = 0;
   room.meter = { chars: 0 };
   broadcastStatus(room);
+  return saved;
 }
 
 /** When a private session starts, listeners who were waiting without the PIN are removed. */
@@ -286,7 +295,7 @@ async function translateFinal(room: Room, sessionId: string, seq: number, text: 
       if (voice.has(lang)) void sendSpeech(room, seq, 0, lang, ""); // close the announced part
     }),
   );
-  sessions.saveSegment(sessionId, seq, text, translations);
+  await sessions.saveSegment(sessionId, seq, text, translations);
 }
 
 /** Languages with at least one listener who turned read-aloud on (nothing is voiced for the others). */
@@ -339,8 +348,8 @@ async function backfillHistory(socket: Socket, room: Room, sessionId: string, it
     if (room.sessionId !== sessionId || !socket.connected) return;
     try {
       const translated = await translator.translate({ kind: "final", text: item.original, from: room.sourceLang, to: lang });
-      sessions.addTranslation(sessionId, item.seq, lang, translated);
-      sessions.addChars(sessionId, item.original.length);
+      await sessions.addTranslation(sessionId, item.seq, lang, translated);
+      await sessions.addChars(sessionId, item.original.length);
       socket.emit("caption:translation", { seq: item.seq, lang, text: translated, isFinal: true });
     } catch (err) {
       console.warn(`[translate:backfill] ${describeTranslationError(err)}`);
@@ -377,6 +386,18 @@ const joinSchema = z.object({
 type Ack = (res: Record<string, unknown>) => void;
 const safeAck = (ack: unknown): Ack => (typeof ack === "function" ? (ack as Ack) : () => {});
 
+/**
+ * Run a socket's start/stop/join requests one at a time, in order. They read and write the database,
+ * so without this a double-tapped "Go live" could create two sessions.
+ */
+function inOrder(socket: Socket, ack: Ack, task: () => Promise<unknown>) {
+  const previous: Promise<unknown> = socket.data.queue ?? Promise.resolve();
+  socket.data.queue = previous.then(task).catch((err) => {
+    console.error("[socket]", err);
+    ack({ ok: false, error: "server_error" });
+  });
+}
+
 function registerSpeakerHandlers(socket: Socket) {
   const allow = rateLimiter(40, 25);
 
@@ -389,8 +410,12 @@ function registerSpeakerHandlers(socket: Socket) {
 
   socket.on("speaker:start", (raw, ackFn) => {
     const ack = safeAck(ackFn);
+    inOrder(socket, ack, () => startBroadcast(raw, ack));
+  });
+
+  async function startBroadcast(raw: unknown, ack: Ack) {
     // Re-read the user: verification status may have changed since this socket connected.
-    const user = socket.data.user ? users.byId((socket.data.user as UserRow).id) : undefined;
+    const user = socket.data.user ? await users.byId((socket.data.user as UserRow).id) : undefined;
     if (!user) return ack({ ok: false, error: "unauthorized" });
     if (!user.email_verified) return ack({ ok: false, error: "email_unverified" });
     socket.data.user = user;
@@ -412,9 +437,9 @@ function registerSpeakerHandlers(socket: Socket) {
 
     const resuming = !!resumeSessionId && room.sessionId === resumeSessionId;
     if (!resuming) {
-      endSession(room);
+      void endSession(room);
       const revisit = allowRevisit ?? !pin;
-      const session = sessions.create(user.id, sourceLang, title || null, { isPrivate: !!pin, mode: translationMode, allowRevisit: revisit });
+      const session = await sessions.create(user.id, sourceLang, title || null, { isPrivate: !!pin, mode: translationMode, allowRevisit: revisit });
       room.sessionId = session.id;
       room.title = session.title;
       room.sourceLang = sourceLang;
@@ -436,7 +461,7 @@ function registerSpeakerHandlers(socket: Socket) {
     }
     broadcastStatus(room);
     ack({ ok: true, resumed: resuming, sessionId: room.sessionId, listeners: listenerCount(room) });
-  });
+  }
 
   socket.on("speaker:partial", (raw) => {
     const room = ownRoom();
@@ -524,9 +549,11 @@ function registerSpeakerHandlers(socket: Socket) {
 
   socket.on("speaker:stop", (_raw, ackFn) => {
     const ack = safeAck(ackFn);
-    const room = ownRoom();
-    if (room) endSession(room);
-    ack({ ok: true });
+    inOrder(socket, ack, async () => {
+      const room = ownRoom();
+      if (room) await endSession(room); // so History shows it as ended right away
+      ack({ ok: true });
+    });
   });
 }
 
@@ -547,9 +574,13 @@ function registerListenerHandlers(socket: Socket) {
 
   socket.on("listener:join", (raw, ackFn) => {
     const ack = safeAck(ackFn);
+    inOrder(socket, ack, () => join(raw, ack));
+  });
+
+  async function join(raw: unknown, ack: Ack) {
     const parsed = joinSchema.safeParse(raw ?? {});
     if (!parsed.success || !isTargetLanguage(parsed.data.lang)) return ack({ ok: false, error: "invalid_request" });
-    const speaker = users.byUsername(parsed.data.username.replace(/^@/, ""));
+    const speaker = await users.byUsername(parsed.data.username.replace(/^@/, ""));
     if (!speaker) return ack({ ok: false, error: "not_found" });
     const speakerInfo = { username: speaker.username, displayName: speaker.display_name };
 
@@ -572,7 +603,7 @@ function registerListenerHandlers(socket: Socket) {
     recordAttendance(socket, room);
 
     // Catch the listener up: recent finalized lines plus anything being spoken right now.
-    const saved = room.sessionId ? sessions.recentSegments(room.sessionId, HISTORY_ON_JOIN) : [];
+    const saved = room.sessionId ? await sessions.recentSegments(room.sessionId, HISTORY_ON_JOIN) : [];
     const history = [
       ...saved.map((s) => ({ seq: s.seq, original: s.original, translation: s.translations[lang] ?? null, isFinal: true })),
       ...[...room.segments.values()].map((s) => ({
@@ -587,7 +618,7 @@ function registerListenerHandlers(socket: Socket) {
 
     broadcastStats(room);
     ack({ ok: true, speaker: speakerInfo, status: statusPayload(room), listeners: listenerCount(room), history });
-  });
+  }
 
   socket.on("listener:audio", (raw) => {
     const speakerId: string | undefined = socket.data.listeningTo;
@@ -603,10 +634,20 @@ function registerListenerHandlers(socket: Socket) {
 
 export function attachRealtime(server: Server) {
   io = server;
-  sessions.closeDangling();
+  sessions.closeDangling().catch((err) => console.error("[db] closeDangling", err));
+
+  // Look the user up before the connection is accepted, so every event handler already knows who it is.
+  io.use((socket, next) => {
+    userFromToken(socket.handshake.auth?.token).then(
+      (user) => {
+        socket.data.user = user ?? undefined;
+        next();
+      },
+      (err) => next(err instanceof Error ? err : new Error("auth failed")),
+    );
+  });
 
   io.on("connection", (socket) => {
-    socket.data.user = userFromToken(socket.handshake.auth?.token) ?? undefined;
 
     registerSpeakerHandlers(socket);
     const leaveListening = registerListenerHandlers(socket);
@@ -621,7 +662,7 @@ export function attachRealtime(server: Server) {
         // Keep the session alive briefly so a network blip doesn't end the broadcast.
         broadcastStatus(room);
         room.reconnectTimer = setTimeout(() => {
-          endSession(room);
+          void endSession(room);
           maybeDisposeRoom(room);
         }, SPEAKER_RECONNECT_GRACE_MS);
       } else {
@@ -642,10 +683,10 @@ export function liveInfo(speakerId: string) {
 export const liveSessionId = (speakerId: string) => rooms.get(speakerId)?.sessionId ?? null;
 
 /** Used when an account is deleted: end any live session and disconnect the broadcasting device. */
-export function forceEndSpeaker(speakerId: string) {
+export async function forceEndSpeaker(speakerId: string) {
   const room = rooms.get(speakerId);
   if (!room || !io) return;
-  endSession(room);
+  await endSession(room);
   if (room.speakerSocketId) io.sockets.sockets.get(room.speakerSocketId)?.disconnect(true);
   room.speakerSocketId = null;
   maybeDisposeRoom(room);

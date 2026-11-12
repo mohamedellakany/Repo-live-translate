@@ -76,7 +76,7 @@ Then open http://localhost:8082:
 2. In another tab, window or device, enter your speaker ID and read the translation live.
    You can also open `http://localhost:8082/listen/<username>` directly or scan the QR code.
 
-Accounts and session history are stored in the local SQLite database, so they survive restarts.
+Accounts and session history are stored in PostgreSQL: set `DATABASE_URL` in `server/.env` to your Neon `development` branch (see [Database](#database-postgresql-on-neon)). The tables are created automatically on first start.
 
 > **Testing "My sessions":** the listener must be a **different account** from the speaker. Tabs in the same browser share one login, so use a private/incognito window or another browser for the listener.
 
@@ -101,7 +101,8 @@ server/              Node.js + TypeScript backend
   src/translation/     Pluggable providers: free | google | deepl | claude
   src/summary.ts       AI summaries (Gemini or Claude), automatic when a session ends
   src/routes/          REST: auth, speaker lookup, session history, listener library
-  src/db.ts            SQLite (built into Node, no native deps) with automatic migrations
+  src/db.ts            PostgreSQL (Neon) with automatic migrations
+  src/scripts/         backup, restore-backup, import-sqlite (one-time move from SQLite)
   test/                Integration tests
 mobile/              Expo (React Native) app: iOS, Android, Web
   src/app/             Screens (Expo Router): home, login, register, speak, listen/[username],
@@ -115,6 +116,16 @@ deploy/              Docker Compose, Caddy and VM deploy scripts
 ## Development
 
 ### Tests and checks
+
+The server tests use a throwaway local PostgreSQL (wiped on every run, never your Neon data). Start one once per Mac session:
+
+```bash
+brew install postgresql@17                       # first time only
+PG=/opt/homebrew/opt/postgresql@17/bin
+$PG/initdb -D /tmp/lisanova-pg --auth=trust      # first time only (or after a reboot clears /tmp)
+$PG/pg_ctl -D /tmp/lisanova-pg -o "-p 54329 -k /tmp" -l /tmp/lisanova-pg.log start
+$PG/createdb -h localhost -p 54329 lisanova_test  # first time only
+```
 
 ```bash
 cd server && npm test             # end-to-end: auth, live room, captions, history, listener library
@@ -216,6 +227,20 @@ Listeners can have the translation read aloud (live, and from **My sessions**). 
 
 Speech is only generated for languages where at least one listener has read-aloud on. Each sentence is generated once and shared, so many listeners hearing the same sentence cost one request, and replays in **My sessions** reuse it. `/api/tts` (used by **My sessions**) only voices text the server signed, so it can't be used to read arbitrary text on your key.
 
+### Database (PostgreSQL on Neon)
+
+The app uses PostgreSQL through `DATABASE_URL`. In production it's hosted on [Neon](https://neon.com) (region US West, close to the server):
+
+| Neon branch | Used by | Setting |
+| --- | --- | --- |
+| `main` | the live app | `DATABASE_URL` in `server/.env.production` |
+| `development` | running the app on your Mac | `DATABASE_URL` in `server/.env` |
+
+- Tables are created and updated automatically when the server starts (`src/db.ts`).
+- **Browse the data** in Neon's dashboard (Tables / SQL Editor), or in TablePlus, DBeaver or `psql` with the connection string. Changes there are live, so use a read-only role for everyday browsing.
+- **Backups:** Neon keeps its own restore history (6 hours on the free plan, up to 7 days on Launch). For an extra independent copy, `npm run backup` exports every table to `BACKUP_DIR/app-<date>.json.gz` (on the server: `docker compose exec -T server node dist/scripts/backup.js`), and `npm run restore-backup <file>` loads one into an **empty** database, such as a new Neon branch.
+- **Moving from SQLite** (one time): `npm run import-sqlite` copies everything from `DATABASE_PATH` into an empty `DATABASE_URL` and checks the row counts. The SQLite file is only read.
+
 ## Deployment
 
 ### Updating the live app (Oracle VM)
@@ -260,7 +285,7 @@ The database (accounts, history) is kept between deploys, and any database chang
   git checkout main        # return to your latest code afterwards
   ```
 
-  Database changes are not undone by a rollback. Older code ignores the new tables and columns, but take a backup first if in doubt (see `deploy/backup-cron.example`).
+  Database changes are not undone by a rollback. Take a backup first (`npm run backup` on the server, see [Database](#database-postgresql-on-neon)); Neon can also restore the database to an earlier time from its dashboard.
 
 - **Viewing server logs:**
 
@@ -284,12 +309,13 @@ docker build -t live-translate-server .
 docker run -p 4000:4000 -v lt-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e CORS_ORIGINS=https://app.your-domain.com \
+  -e DATABASE_URL=postgresql://... \
   -e TRANSLATION_PROVIDER=google -e GOOGLE_TRANSLATE_API_KEY=... \
   live-translate-server
 ```
 
 Put it behind HTTPS (`https://api.your-domain.com`). The server refuses to start in production with the default `JWT_SECRET`.
-SQLite is fine for a single instance. To run several instances, move to Postgres and add the Socket.IO Redis adapter.
+The database is PostgreSQL (Neon), so several instances can share it; to run more than one, also add the Socket.IO Redis adapter (live rooms are kept in memory).
 
 #### Web app
 
