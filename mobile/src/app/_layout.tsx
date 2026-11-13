@@ -2,6 +2,7 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { AuthProvider } from "@/auth/AuthProvider";
+import { BroadcastProvider } from "@/broadcast/BroadcastProvider";
 import { I18nProvider } from "@/i18n";
 import { ThemeProvider, useTheme } from "@/theme";
 
@@ -24,13 +25,16 @@ function ThemedStack() {
   return (
     <>
       <StatusBar style={name === "dark" ? "light" : "dark"} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.bg },
-          animation: "slide_from_right",
-        }}
-      />
+      {/* Owns the live broadcast so it keeps running while the speaker uses other screens. */}
+      <BroadcastProvider>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: colors.bg },
+            animation: "slide_from_right",
+          }}
+        />
+      </BroadcastProvider>
     </>
   );
 }

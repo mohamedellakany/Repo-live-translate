@@ -331,6 +331,11 @@ export const en = {
   "deleteInfo.deleted3": "Your \"My sessions\" list as a listener.",
   "deleteInfo.deleted4": "Verification and password-reset codes.",
   "deleteInfo.kept": "Backups are overwritten within 14 days. Basic server logs used for security (such as IP addresses) may be kept for a short time.",
+  // broadcast keeps running on other screens
+  "liveBar.live": "You're live",
+  "liveBar.listeners": "{count} listening",
+  "liveBar.back": "Back to broadcast",
+  "speak.keepGoingHint": "You can open other screens or check notes and you'll stay live. On a computer, keep Lisanova open in its own window (not a background tab) so the browser keeps hearing you.",
 };
 
 export type TKey = keyof typeof en;

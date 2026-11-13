@@ -53,10 +53,16 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
   const restartTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const supported = !!Speech && (Platform.OS !== "web" || Speech.isRecognitionAvailable());
+  // Kept in a ref so start(locale) takes effect immediately (before the prop catches up).
+  const localeRef = useRef(locale);
+  useEffect(() => {
+    localeRef.current = locale;
+  }, [locale]);
+  const listening = useRef(false);
 
   const startRecognizer = useCallback(() => {
     Speech?.start({
-      lang: locale,
+      lang: localeRef.current,
       interimResults: true,
       continuous: true,
       addsPunctuation: true,
@@ -65,7 +71,7 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
       volumeChangeEventOptions: { enabled: true, intervalMillis: 120 },
       androidIntentOptions: { EXTRA_LANGUAGE_MODEL: "free_form" },
     });
-  }, [locale]);
+  }, []);
 
   /** Restart the recognizer after it stopped on its own, backing off if it fails to start. */
   const scheduleRestart = useCallback(() => {
@@ -89,6 +95,7 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
   ) => {
     switch (name) {
       case "start":
+        listening.current = true;
         setStatus("listening");
         setError(null);
         retryDelay.current = 150;
@@ -118,6 +125,7 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
         break;
       }
       case "end":
+        listening.current = false;
         setVolume(0);
         if (wantRunning.current) scheduleRestart();
         else setStatus((s) => (s === "error" ? s : "idle"));
@@ -131,6 +139,19 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
     }
   });
 
+  // Browsers may pause speech recognition while the tab is in the background and refuse to restart it
+  // there; as soon as the tab is visible again, pick up where we left off.
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof document === "undefined") return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || !wantRunning.current || listening.current) return;
+      retryDelay.current = 150;
+      scheduleRestart();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [scheduleRestart]);
+
   useEffect(() => {
     if (!Speech) return;
     const events = ["start", "result", "error", "end", "volumechange"] as const;
@@ -138,7 +159,9 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
     return () => subs.forEach((sub) => sub.remove());
   }, []);
 
-  const start = useCallback(async () => {
+  /** Start listening. Pass a locale to switch language for this run. */
+  const start = useCallback(async (startLocale?: string) => {
+    if (startLocale) localeRef.current = startLocale;
     setError(null);
     if (!supported || !Speech) {
       setStatus("error");

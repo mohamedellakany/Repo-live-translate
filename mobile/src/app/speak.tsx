@@ -1,10 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
-import { activateKeepAwakeAsync, deactivateKeepAwake } from "expo-keep-awake";
 import { Redirect, router } from "expo-router";
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, Text, View } from "react-native";
-import type { Socket } from "socket.io-client";
 import { useAuth } from "@/auth/AuthProvider";
+import { useBroadcast, useNow } from "@/broadcast/BroadcastProvider";
 import { CaptionFeed } from "@/components/CaptionFeed";
 import { ShareCard } from "@/components/ShareCard";
 import {
@@ -24,75 +23,45 @@ import {
   ARABIC_DIALECTS,
   DEFAULT_DIALECT,
   DEFAULT_SOURCE,
-  DEFAULT_TARGET,
   LANGUAGES,
   SOURCE_LANGUAGES,
   TRANSLATION_MODES,
   type ArabicDialect,
   type TranslationMode,
 } from "@/constants/languages";
-import { useCaptions } from "@/hooks/useCaptions";
-import { isExpoGo, useSpeechCapture } from "@/hooks/useSpeechCapture";
+import { isExpoGo } from "@/hooks/useSpeechCapture";
 import { useI18n } from "@/i18n";
 import { formatDuration } from "@/lib/format";
-import { createSocket, emitWithAck } from "@/lib/socket";
 import { storage } from "@/lib/storage";
 import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
-const PARTIAL_THROTTLE_MS = 100;
-const KEEP_AWAKE_TAG = "speak";
 const PREFS_KEY = "lt.speakerPrefs";
 const PIN_RE = /^\d{4,8}$/;
 
-type Phase = "setup" | "starting" | "live" | "stopping";
 type SpeakerPrefs = { sourceLang?: string; dialect?: ArabicDialect; mode?: TranslationMode };
 
 export default function Speak() {
   const { colors } = useTheme();
   const styles = useStyles();
   const { t } = useI18n();
-  const { user, token, ready } = useAuth();
+  const { user, ready } = useAuth();
+  const broadcast = useBroadcast();
+  const { phase, paused, connected, listeners, startedAt, livePin, lines, notice, capture } = broadcast;
+
   const [sourceLang, setSourceLang] = useState(DEFAULT_SOURCE);
   const source = LANGUAGES[sourceLang] ?? LANGUAGES[DEFAULT_SOURCE];
-  const preview = LANGUAGES[DEFAULT_TARGET];
-
-  const socket = useMemo<Socket | null>(() => (token ? createSocket(token) : null), [token]);
-  const [connected, setConnected] = useState(false);
-  const [phase, setPhase] = useState<Phase>("setup");
-  const [paused, setPaused] = useState(false);
   const [title, setTitle] = useState("");
   const [dialect, setDialect] = useState<ArabicDialect>(DEFAULT_DIALECT);
   const [mode, setMode] = useState<TranslationMode>("live");
   const [isPrivate, setIsPrivate] = useState(false);
   const [allowRevisit, setAllowRevisit] = useState(true);
   const [pin, setPin] = useState("");
-  const [livePin, setLivePin] = useState<string | null>(null);
   const [picker, setPicker] = useState<"language" | "dialect" | "mode" | null>(null);
-  const [listeners, setListeners] = useState(0);
-  const [startedAt, setStartedAt] = useState<number | null>(null);
-  const [now, setNow] = useState(() => Date.now());
-  const [notice, setNotice] = useState<string | null>(null);
   const [showShare, setShowShare] = useState(false);
 
-  // Broadcast state kept in refs so socket callbacks always see current values.
-  const sessionId = useRef<string | null>(null);
-  const streamReady = useRef(false); // true once the server accepted speaker:start on this connection
-  const seq = useRef(0);
-  const seqHasContent = useRef(false);
-  const pendingFinals = useRef<{ seq: number; text: string }[]>([]);
-  const partialTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastPartialAt = useRef(0);
-  const latestPartial = useRef("");
-  const keepAwakeOn = useRef(false);
-
-  /** Keep the screen on only while live. Releasing a lock that was never taken throws on web, so track it. */
-  const setKeepAwake = useCallback((on: boolean) => {
-    if (keepAwakeOn.current === on) return;
-    keepAwakeOn.current = on;
-    (on ? activateKeepAwakeAsync(KEEP_AWAKE_TAG) : deactivateKeepAwake(KEEP_AWAKE_TAG)).catch(() => {});
-  }, []);
-
-  const { lines, reset } = useCaptions(socket, preview.code);
+  // The broadcast itself lives in BroadcastProvider; this screen keeps the connection open to show its status.
+  const { retainConnection } = broadcast;
+  useEffect(() => retainConnection(), [retainConnection]);
 
   // Remember the speaker's language, dialect and translation mode between sessions (Arabic until they pick another).
   useEffect(() => {
@@ -104,174 +73,30 @@ export default function Speak() {
   }, []);
   const savePrefs = (patch: SpeakerPrefs) => storage.setJSON(PREFS_KEY, { sourceLang, dialect, mode, ...patch });
 
-  /* ------------------------------- streaming ------------------------------- */
-  const flushPartial = useCallback(() => {
-    partialTimer.current = null;
-    if (!socket || !streamReady.current || !latestPartial.current) return;
-    lastPartialAt.current = Date.now();
-    socket.emit("speaker:partial", { seq: seq.current, text: latestPartial.current });
-  }, [socket]);
-
-  const onPartial = useCallback(
-    (text: string) => {
-      if (!text.trim()) return;
-      seqHasContent.current = true;
-      latestPartial.current = text;
-      const wait = PARTIAL_THROTTLE_MS - (Date.now() - lastPartialAt.current);
-      if (wait <= 0) flushPartial();
-      else if (!partialTimer.current) partialTimer.current = setTimeout(flushPartial, wait);
-    },
-    [flushPartial],
-  );
-
-  const onFinal = useCallback(
-    (text: string) => {
-      if (partialTimer.current) clearTimeout(partialTimer.current);
-      partialTimer.current = null;
-      latestPartial.current = "";
-      if (!text.trim() && !seqHasContent.current) return;
-      const payload = { seq: seq.current, text };
-      seq.current += 1;
-      seqHasContent.current = false;
-      if (socket && streamReady.current) socket.emit("speaker:final", payload);
-      else pendingFinals.current.push(payload); // delivered after reconnect
-    },
-    [socket],
-  );
-
-  // Arabic uses the chosen dialect's recognizer; other languages use their standard locale.
-  const capture = useSpeechCapture({ locale: source.code === "ar" ? dialect : source.ttsLocale, onPartial, onFinal });
+  // While live, the spoken language is the broadcast's; before that, the one being picked.
+  const isLive = phase === "live" || phase === "stopping";
+  const spoken = isLive ? broadcast.source : source;
   // The generic "not supported" message talks about Arabic dialects, so use a different one for other languages.
   const captureError =
-    capture.error === "speech.languageNotSupported" && source.code !== "ar" ? "speech.languageNotSupportedOther" : capture.error;
-
-  /* ------------------------------- controls -------------------------------- */
-  const endLocal = useCallback(() => {
-    capture.stop();
-    sessionId.current = null;
-    streamReady.current = false;
-    pendingFinals.current = [];
-    setPhase("setup");
-    setPaused(false);
-    setStartedAt(null);
-    setLivePin(null);
-    setKeepAwake(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [capture.stop, setKeepAwake]);
-
-  /* ---------------------------- socket lifecycle --------------------------- */
-  const onConnect = useEffectEvent(async (s: Socket) => {
-    setConnected(true);
-    if (!sessionId.current) return;
-    // Reconnected mid-broadcast: resume the same session.
-    try {
-      const res = await emitWithAck(s, "speaker:start", { sourceLang: source.code, resumeSessionId: sessionId.current });
-      if (!res.ok) throw new Error(res.error);
-      sessionId.current = res.sessionId;
-      streamReady.current = true;
-      if (!res.resumed) setNotice(t("speak.newSessionStarted"));
-      for (const f of pendingFinals.current.splice(0)) s.emit("speaker:final", f);
-    } catch {
-      setNotice(t("speak.resumeFailed"));
-    }
-  });
-  const onReplaced = useEffectEvent(() => {
-    setNotice(t("speak.replaced"));
-    endLocal();
-  });
-
-  useEffect(() => {
-    if (!socket) return;
-    const handleConnect = () => void onConnect(socket);
-    const handleDisconnect = () => {
-      setConnected(false);
-      streamReady.current = false;
-    };
-    const handleStats = (d: { listeners: number }) => setListeners(d.listeners);
-    const handleReplaced = () => onReplaced();
-    socket.on("connect", handleConnect);
-    socket.on("disconnect", handleDisconnect);
-    socket.on("room:stats", handleStats);
-    socket.on("speaker:replaced", handleReplaced);
-    socket.connect();
-    return () => {
-      socket.off("connect", handleConnect);
-      socket.off("disconnect", handleDisconnect);
-      socket.off("room:stats", handleStats);
-      socket.off("speaker:replaced", handleReplaced);
-      socket.disconnect();
-    };
-  }, [socket]);
+    capture.error === "speech.languageNotSupported" && spoken.code !== "ar" ? "speech.languageNotSupportedOther" : capture.error;
 
   const pinError = isPrivate && pin && !PIN_RE.test(pin) ? t("speak.pinInvalid") : null;
   const canStart = connected && capture.supported && (!isPrivate || PIN_RE.test(pin));
 
   const goLive = async () => {
-    if (!socket) return;
-    setNotice(null);
-    setPhase("starting");
-    const sessionPin = isPrivate ? pin : null;
-    try {
-      const res = await emitWithAck(socket, "speaker:start", {
-        sourceLang: source.code,
-        title: title.trim() || null,
-        pin: sessionPin,
-        translationMode: mode,
-        allowRevisit,
-      });
-      if (!res.ok) {
-        if (res.error === "email_unverified") return router.replace({ pathname: "/verify-email", params: { next: "/speak" } });
-        throw new Error(res.error === "unauthorized" ? t("speak.sessionExpired") : t("speak.startFailed"));
-      }
-      sessionId.current = res.sessionId;
-      streamReady.current = true;
-      seq.current = 0;
-      seqHasContent.current = false;
-      setListeners(res.listeners ?? 0);
-      setLivePin(sessionPin);
-      reset();
-    } catch (e) {
-      setPhase("setup");
-      setNotice(connected ? (e as Error).message : t("common.offline"));
-      return;
-    }
-    const started = await capture.start();
-    if (!started) {
-      await emitWithAck(socket, "speaker:stop", {}).catch(() => {});
-      endLocal();
-      return;
-    }
-    setStartedAt(Date.now());
-    setPhase("live");
-    setKeepAwake(true);
+    const result = await broadcast.goLive({
+      sourceLang: source.code,
+      // Arabic uses the chosen dialect's recognizer; other languages use their standard locale.
+      locale: source.code === "ar" ? dialect : source.ttsLocale,
+      title: title.trim() || null,
+      pin: isPrivate ? pin : null,
+      mode,
+      allowRevisit,
+    });
+    if (result === "unverified") router.replace({ pathname: "/verify-email", params: { next: "/speak" } });
   };
 
-  const stopLive = async () => {
-    setPhase("stopping");
-    capture.stop();
-    // Give the recognizer a moment to deliver the last final result.
-    await new Promise((r) => setTimeout(r, 600));
-    if (socket) await emitWithAck(socket, "speaker:stop", {}).catch(() => {});
-    endLocal();
-  };
-
-  const togglePause = async () => {
-    if (paused) {
-      if (await capture.start()) setPaused(false);
-    } else {
-      capture.stop();
-      setPaused(true);
-    }
-  };
-
-  // Leaving the screen disconnects the socket; the server ends the session after its reconnect grace period.
-  useEffect(() => () => setKeepAwake(false), [setKeepAwake]);
-
-  useEffect(() => {
-    if (phase !== "live") return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [phase]);
+  const now = useNow(phase === "live");
 
   /* --------------------------------- render -------------------------------- */
   if (ready && !user) return <Redirect href={{ pathname: "/login", params: { next: "/speak" } }} />;
@@ -284,11 +109,9 @@ export default function Speak() {
   }
   if (!user.emailVerified) return <Redirect href={{ pathname: "/verify-email", params: { next: "/speak" } }} />;
 
-  const isLive = phase === "live" || phase === "stopping";
   const header = (
     <AppHeader
       title={isLive ? undefined : t("speak.header")}
-      back={!isLive}
       right={<IconButton icon="qr-code-outline" label={t("speak.share")} onPress={() => setShowShare((v) => !v)} active={showShare} />}
     />
   );
@@ -452,12 +275,13 @@ export default function Speak() {
       {notice && <Banner tone="warning" text={notice} />}
       {captureError && <Banner tone="error" text={t(captureError)} />}
       {!connected && <Banner tone="warning" icon="cloud-offline-outline" text={t("speak.connectionLost")} />}
+      <Text style={styles.hint}>{t("speak.keepGoingHint")}</Text>
 
       <View style={styles.feed}>
         <CaptionFeed
           lines={lines}
           mode="speaker"
-          originalRtl={source.rtl}
+          originalRtl={spoken.rtl}
           empty={
             <View style={{ alignItems: "center", gap: spacing.sm }}>
               <Ionicons name="mic" size={36} color={colors.textDim} />
@@ -470,7 +294,7 @@ export default function Speak() {
 
       <View style={styles.controls}>
         <Pressable
-          onPress={togglePause}
+          onPress={broadcast.togglePause}
           accessibilityRole="button"
           accessibilityLabel={paused ? t("speak.resume") : t("speak.pause")}
           style={[styles.micButton, paused && { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}
@@ -487,7 +311,7 @@ export default function Speak() {
           title={phase === "stopping" ? t("speak.ending") : t("speak.end")}
           icon="stop-circle-outline"
           variant="danger"
-          onPress={stopLive}
+          onPress={broadcast.stop}
           loading={phase === "stopping"}
           style={{ flex: 1 }}
         />
@@ -503,6 +327,7 @@ const useStyles = makeStyles((colors) => ({
   infoValue: { color: colors.textMuted, fontSize: 15 },
   pinRow: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start" },
   tip: { color: colors.textDim, fontSize: 13, textAlign: "center", lineHeight: 19 },
+  hint: { color: colors.textDim, fontSize: 12, lineHeight: 17 },
   liveBar: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   timer: { color: colors.text, fontSize: 16, fontVariant: ["tabular-nums"], fontWeight: "600" },
   pinBadge: {

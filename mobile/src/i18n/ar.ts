@@ -316,4 +316,9 @@ export const ar: Record<TKey, string> = {
   "deleteInfo.deleted3": "قائمة «جلساتي» الخاصة بك كمستمع.",
   "deleteInfo.deleted4": "رموز التحقق وإعادة تعيين كلمة المرور.",
   "deleteInfo.kept": "تُستبدل النسخ الاحتياطية خلال 14 يومًا. وقد نحتفظ لفترة قصيرة بسجلات الخادم الأساسية المستخدمة للأمان (مثل عناوين IP).",
+  // broadcast keeps running on other screens
+  "liveBar.live": "أنت على الهواء",
+  "liveBar.listeners": "{count} يستمعون",
+  "liveBar.back": "العودة إلى البث",
+  "speak.keepGoingHint": "يمكنك فتح صفحات أخرى أو مراجعة ملاحظاتك وسيستمر البث. على الكمبيوتر، اترك ليسانوفا مفتوحًا في نافذة مستقلة (وليس في تبويب بالخلفية) ليستمر المتصفح في سماعك.",
 };
