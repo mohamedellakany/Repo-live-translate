@@ -16,7 +16,7 @@ const dest = join(config.BACKUP_DIR, `app-${stamp}.json.gz`);
 
 const dump = await readAll();
 await pool.end();
-writeFileSync(dest, gzipSync(JSON.stringify({ format: "lisanova-backup", version: 1, createdAt: new Date().toISOString(), tables: dump })));
+writeFileSync(dest, gzipSync(JSON.stringify({ format: "lisancast-backup", version: 1, createdAt: new Date().toISOString(), tables: dump })));
 console.log(`Backup written: ${dest}`, countRows(dump));
 
 // Retention: keep the newest BACKUP_KEEP files.

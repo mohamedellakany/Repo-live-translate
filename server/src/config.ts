@@ -15,7 +15,7 @@ const schema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required (PostgreSQL connection string)"),
   // Old SQLite database: only read by the one-time import script (npm run import-sqlite).
   DATABASE_PATH: z.string().default("./data/app.db"),
-  APP_NAME: z.string().default("Lisanova"),
+  APP_NAME: z.string().default("LisanCast"),
 
   TRANSLATION_PROVIDER: z.enum(["free", "google", "deepl", "claude", "mock"]).default("free"),
   GOOGLE_TRANSLATE_API_KEY: optional,

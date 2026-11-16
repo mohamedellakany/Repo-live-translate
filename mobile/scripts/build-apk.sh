@@ -13,7 +13,7 @@ set -euo pipefail
 
 MOBILE="$(cd "$(dirname "$0")/.." && pwd)"
 APK_DIR="${APK_DIR:-$HOME/Downloads/Apps}"
-APK_NAME="lisanova.apk"
+APK_NAME="lisancast.apk"
 export EXPO_PUBLIC_API_URL="${API_URL:-https://api.192-18-128-201.sslip.io}"
 export EXPO_PUBLIC_WEB_URL="${WEB_URL:-https://app.192-18-128-201.sslip.io}"
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"

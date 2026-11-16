@@ -14,8 +14,9 @@ if (!file) {
   process.exit(1);
 }
 const backup = JSON.parse(gunzipSync(readFileSync(file)).toString("utf8")) as { format?: string; tables: Dump };
-if (backup.format !== "lisanova-backup") {
-  console.error("This file isn't a Lisanova backup.");
+// Backups made before the rename say "lisanova-backup"; both are the same format.
+if (backup.format !== "lisancast-backup" && backup.format !== "lisanova-backup") {
+  console.error("This file isn't a LisanCast backup.");
   process.exit(1);
 }
 if (!(await isEmpty())) {

@@ -17,7 +17,7 @@ const io = new Server(httpServer, {
 attachRealtime(io);
 
 httpServer.listen(config.PORT, () => {
-  console.log(`Lisanova server listening on http://localhost:${config.PORT}`);
+  console.log(`LisanCast server listening on http://localhost:${config.PORT}`);
   console.log(`Translation provider: ${translator.providerName}`);
   console.log(
     `Features: Google sign-in ${features.googleSignIn ? "on" : "off"} · email ${features.email ? "SMTP" : "console (dev)"} · AI summaries ${summaryProvider ? `on (${summaryProvider})` : "off"}`,

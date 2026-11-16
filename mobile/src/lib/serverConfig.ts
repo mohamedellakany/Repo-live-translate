@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type ServerConfig } from "./api";
 
-const FALLBACK: ServerConfig = { appName: "Lisanova", features: { googleSignIn: false, email: false, summaries: false } };
+const FALLBACK: ServerConfig = { appName: "LisanCast", features: { googleSignIn: false, email: false, summaries: false } };
 let cached: ServerConfig | null = null;
 let pending: Promise<ServerConfig> | null = null;
 

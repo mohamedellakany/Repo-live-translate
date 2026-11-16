@@ -16,7 +16,7 @@ export const en = {
   "common.offline": "You're offline. Check your connection and try again.",
   "common.connecting": "Connecting…",
   "common.notFound": "Page not found",
-  "common.appName": "Lisanova",
+  "common.appName": "LisanCast",
 
   // status badges
   "badge.live": "LIVE",
@@ -159,7 +159,7 @@ export const en = {
   "shareCard.copyId": "Copy ID",
   "shareCard.shareLink": "Share link",
   "shareCard.pinNote": "Private session · PIN {pin}",
-  "shareCard.message": "Follow {name}'s live translation. Open {url} or enter speaker ID @{username} in Lisanova.",
+  "shareCard.message": "Follow {name}'s live translation. Open {url} or enter speaker ID @{username} in LisanCast.",
 
   // speech errors
   "speech.notAllowed": "Microphone or speech recognition permission was denied. Enable it in your settings and try again.",
@@ -308,17 +308,17 @@ export const en = {
   // contact & account deletion pages
   "home.contact": "Contact",
   "contact.title": "Contact us",
-  "contact.intro": "Questions, problems or ideas about Lisanova? Write to us and we'll help.",
+  "contact.intro": "Questions, problems or ideas about LisanCast? Write to us and we'll help.",
   "contact.emailUs": "Email us",
   "contact.sendEmail": "Send email",
   "contact.replyTime": "We usually reply within 2 business days.",
   "contact.reportTitle": "Reporting a problem?",
   "contact.reportText": "Please include your speaker ID or account email, your device (iPhone, Android or web browser), what happened and roughly when. Screenshots help a lot.",
-  "contact.version": "Lisanova version {version}",
+  "contact.version": "LisanCast version {version}",
   "deleteInfo.title": "Delete your account",
-  "deleteInfo.intro": "You can permanently delete your Lisanova account and its data at any time, for free.",
+  "deleteInfo.intro": "You can permanently delete your LisanCast account and its data at any time, for free.",
   "deleteInfo.inAppTitle": "Delete it in the app",
-  "deleteInfo.step1": "Open Lisanova (app or website) and sign in.",
+  "deleteInfo.step1": "Open LisanCast (app or website) and sign in.",
   "deleteInfo.step2": "Tap the profile icon at the top of the home screen to open Account.",
   "deleteInfo.step3": "Tap \"Delete my account\" and confirm with your password (or your username if you signed up with Google).",
   "deleteInfo.openAccount": "Open Account",
@@ -335,7 +335,7 @@ export const en = {
   "liveBar.live": "You're live",
   "liveBar.listeners": "{count} listening",
   "liveBar.back": "Back to broadcast",
-  "speak.keepGoingHint": "You can open other screens or check notes and you'll stay live. On a computer, keep Lisanova open in its own window (not a background tab) so the browser keeps hearing you.",
+  "speak.keepGoingHint": "You can open other screens or check notes and you'll stay live. On a computer, keep LisanCast open in its own window (not a background tab) so the browser keeps hearing you.",
 };
 
 export type TKey = keyof typeof en;

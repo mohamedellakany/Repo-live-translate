@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Lisanova (API + web app) to a VM from your Mac. Safe to re-run for every update.
+# Deploy LisanCast (API + web app) to a VM from your Mac. Safe to re-run for every update.
 #
 # Usage:   ./deploy/deploy.sh <user@vm-ip> <path-to-ssh-private-key>
 # Example: ./deploy/deploy.sh ubuntu@203.0.113.10 ~/.ssh/oracle-live-translate.key

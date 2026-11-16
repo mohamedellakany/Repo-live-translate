@@ -7,7 +7,7 @@ import { io as connect, type Socket } from "socket.io-client";
 process.env.NODE_ENV = "test";
 process.env.TRANSLATION_PROVIDER = "mock";
 // A throwaway PostgreSQL database, wiped before every run. Never point this at real data.
-process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://localhost:54329/lisanova_test";
+process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://localhost:54329/lisancast_test";
 {
   const admin = new pg.Client({ connectionString: process.env.DATABASE_URL });
   await admin.connect();

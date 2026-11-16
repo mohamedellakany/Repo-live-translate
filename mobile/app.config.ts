@@ -10,7 +10,7 @@ const iosUrlScheme = iosClientId ? `com.googleusercontent.apps.${iosClientId.rep
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "Lisanova",
+  name: "LisanCast",
   slug: "live-translate",
   scheme: "livetranslate",
   version: "1.0.0",
@@ -42,7 +42,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   web: {
     favicon: "./assets/favicon.png",
     output: "single",
-    name: "Lisanova",
+    name: "LisanCast",
     themeColor: BG,
     backgroundColor: BG,
   },
@@ -53,8 +53,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-speech-recognition",
       {
         microphonePermission:
-          "Lisanova uses the microphone to transcribe what you say so your listeners can read the translation.",
-        speechRecognitionPermission: "Lisanova uses speech recognition to turn your speech into text for live translation.",
+          "LisanCast uses the microphone to transcribe what you say so your listeners can read the translation.",
+        speechRecognitionPermission: "LisanCast uses speech recognition to turn your speech into text for live translation.",
         androidSpeechServicePackages: ["com.google.android.googlequicksearchbox", "com.google.android.as"],
       },
     ],
