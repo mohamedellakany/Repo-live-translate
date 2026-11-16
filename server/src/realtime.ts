@@ -43,6 +43,14 @@ const PIN_ATTEMPTS_PER_MINUTE = 5;
  * `null` = interim text isn't translated at all (only finished sentences).
  */
 const PARTIAL_INTERVAL_MS: Record<TranslationMode, number | null> = { live: 200, balanced: 1_000, sentences: null };
+/**
+ * Interim translation re-sends the whole growing sentence, and every request is billed in full, so
+ * only re-translate when there's something worth showing: a couple of new words, a natural break
+ * (comma, full stop, question mark…), or a short pause in speech. Finished sentences are unaffected.
+ */
+const PARTIAL_MIN_NEW_WORDS = 2;
+const PARTIAL_SETTLE_MS = 700;
+const BREAK_AT_END = /[,.!?:;،؛؟]\s*$/;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const roomName = (speakerId: string) => `room:${speakerId}`;
@@ -60,6 +68,10 @@ interface SegmentState {
   translatedVersion: Map<string, number>;
   translation: Map<string, string>;
   lastRequestAt: Map<string, number>;
+  /** Interim translation: words already translated, and pending "speaker paused" checks, per language. */
+  translatedWords: Map<string, number>;
+  settleTimers: Map<string, NodeJS.Timeout>;
+  forced: Set<string>;
   /** Read-aloud: the previous interim transcript, how many of its words were voiced, and the phrases voiced so far. */
   prevWords: string[];
   voicedWords: number;
@@ -192,6 +204,7 @@ function endSession(room: Room): Promise<void> {
   room.sessionId = null;
   room.title = null;
   room.pin = null;
+  for (const seg of room.segments.values()) retireSegment(seg);
   room.segments.clear();
   room.recentFinals = [];
   room.highestFinalSeq = -1;
@@ -240,6 +253,27 @@ function rateLimiter(capacity: number, refillPerSec: number) {
  * (segment, language) is in flight; when it returns, we immediately translate
  * the newest text if it changed meanwhile. Stale results are never broadcast.
  */
+/** If the speaker pauses mid-sentence, translate what they've said so far even if it's only a word. */
+function armSettle(room: Room, seg: SegmentState, lang: string) {
+  clearTimeout(seg.settleTimers.get(lang));
+  seg.settleTimers.set(
+    lang,
+    setTimeout(() => {
+      seg.settleTimers.delete(lang);
+      if (seg.finalized || (seg.translatedVersion.get(lang) ?? -1) >= seg.version) return;
+      seg.forced.add(lang);
+      void pumpPartial(room, seg, lang);
+    }, PARTIAL_SETTLE_MS),
+  );
+}
+
+/** A sentence is finished or abandoned: stop its interim work. */
+function retireSegment(seg: SegmentState) {
+  seg.finalized = true;
+  for (const timer of seg.settleTimers.values()) clearTimeout(timer);
+  seg.settleTimers.clear();
+}
+
 async function pumpPartial(room: Room, seg: SegmentState, lang: string) {
   const interval = PARTIAL_INTERVAL_MS[room.mode];
   if (interval === null || seg.busy.has(lang)) return;
@@ -252,6 +286,13 @@ async function pumpPartial(room: Room, seg: SegmentState, lang: string) {
         await sleep(wait); // newer interim text that arrives meanwhile is picked up below
         continue;
       }
+      const words = toWords(seg.text).length;
+      const newWords = words - (seg.translatedWords.get(lang) ?? 0);
+      if (newWords < PARTIAL_MIN_NEW_WORDS && !BREAK_AT_END.test(seg.text) && !seg.forced.has(lang)) {
+        armSettle(room, seg, lang); // not worth a request yet; translate anyway if the speaker pauses here
+        break;
+      }
+      seg.forced.delete(lang);
       seg.lastRequestAt.set(lang, Date.now());
       const version = seg.version;
       const translated = await translator.translate({
@@ -264,6 +305,7 @@ async function pumpPartial(room: Room, seg: SegmentState, lang: string) {
       });
       if (seg.finalized) break;
       seg.translatedVersion.set(lang, version);
+      seg.translatedWords.set(lang, words);
       seg.translation.set(lang, translated);
       io.to(langRoom(room.speakerId, lang)).emit("caption:translation", { seq: seg.seq, lang, text: translated, isFinal: false });
     }
@@ -481,6 +523,9 @@ function registerSpeakerHandlers(socket: Socket) {
         translatedVersion: new Map(),
         translation: new Map(),
         lastRequestAt: new Map(),
+        translatedWords: new Map(),
+        settleTimers: new Map(),
+        forced: new Set(),
         prevWords: [],
         voicedWords: 0,
         voicedPhrases: [],
@@ -517,11 +562,16 @@ function registerSpeakerHandlers(socket: Socket) {
     if (seq <= room.highestFinalSeq) return;
 
     const seg = room.segments.get(seq);
-    if (seg) seg.finalized = true;
+    if (seg) retireSegment(seg);
     room.segments.delete(seq);
     room.highestFinalSeq = seq;
     // Drop any interim segments the client abandoned before this one.
-    for (const s of room.segments.keys()) if (s < seq) room.segments.delete(s);
+    for (const [s, abandoned] of room.segments) {
+      if (s < seq) {
+        retireSegment(abandoned);
+        room.segments.delete(s);
+      }
+    }
 
     const clean = text.trim();
     io.to(roomName(room.speakerId)).emit("caption:source", { seq, text: clean, isFinal: true });
