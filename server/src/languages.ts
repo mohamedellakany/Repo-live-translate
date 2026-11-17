@@ -24,13 +24,18 @@ export const LANGUAGES: Record<string, Language> = {
   ko: { code: "ko", name: "Korean", nativeName: "한국어", rtl: false },
   id: { code: "id", name: "Indonesian", nativeName: "Bahasa Indonesia", rtl: false },
   nl: { code: "nl", name: "Dutch", nativeName: "Nederlands", rtl: false },
+  // Pakistan, Afghanistan and Bangladesh
+  ur: { code: "ur", name: "Urdu", nativeName: "اردو", rtl: true },
+  ps: { code: "ps", name: "Pashto", nativeName: "پښتو", rtl: true },
+  fa: { code: "fa", name: "Dari (Persian)", nativeName: "دری", rtl: true },
+  bn: { code: "bn", name: "Bengali", nativeName: "বাংলা", rtl: false },
 };
 
 /** Languages a speaker may speak in. Arabic is the default and listed first. */
 export const SOURCE_LANGUAGES = ["ar", "en", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
 export const DEFAULT_SOURCE = "ar";
 /** Languages a listener may read in (all supported by Google, DeepL and Claude). */
-export const TARGET_LANGUAGES = ["en", "ar", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
+export const TARGET_LANGUAGES = ["en", "ar", "ur", "ps", "fa", "bn", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
 export const DEFAULT_TARGET = "en";
 
 export const isSourceLanguage = (code: string) => SOURCE_LANGUAGES.includes(code);

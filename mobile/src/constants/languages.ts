@@ -22,11 +22,16 @@ export const LANGUAGES: Record<string, Language> = {
   ko: { code: "ko", name: "Korean", nativeName: "한국어", ttsLocale: "ko-KR", rtl: false },
   id: { code: "id", name: "Indonesian", nativeName: "Bahasa Indonesia", ttsLocale: "id-ID", rtl: false },
   nl: { code: "nl", name: "Dutch", nativeName: "Nederlands", ttsLocale: "nl-NL", rtl: false },
+  // Pakistan, Afghanistan and Bangladesh
+  ur: { code: "ur", name: "Urdu", nativeName: "اردو", ttsLocale: "ur-PK", rtl: true },
+  ps: { code: "ps", name: "Pashto", nativeName: "پښتو", ttsLocale: "ps-AF", rtl: true },
+  fa: { code: "fa", name: "Dari (Persian)", nativeName: "دری", ttsLocale: "fa-IR", rtl: true },
+  bn: { code: "bn", name: "Bengali", nativeName: "বাংলা", ttsLocale: "bn-BD", rtl: false },
 };
 
 /** Languages a speaker may speak in. Arabic is the default and listed first. */
 export const SOURCE_LANGUAGES = ["ar", "en", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
-export const TARGET_LANGUAGES = ["en", "ar", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
+export const TARGET_LANGUAGES = ["en", "ar", "ur", "ps", "fa", "bn", "fr", "es", "de", "tr", "it", "pt", "ru", "zh", "ja", "ko", "id", "nl"];
 export const DEFAULT_SOURCE = "ar";
 export const DEFAULT_TARGET = "en";
 

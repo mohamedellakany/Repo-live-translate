@@ -30,7 +30,7 @@ export const en = {
   "home.title": "Understand every word, live.",
   "home.subtitle":
     "Someone speaks Arabic or one of 13 other languages, everyone else reads the translation in real time. Meetings, lectures and conversations, without the language barrier.",
-  "home.chipPair": "Arabic + 13 languages",
+  "home.chipPair": "Read in 18 languages",
   "home.chipLive": "Real-time",
   "home.followTitle": "Follow a speaker",
   "home.followText": "Enter the speaker's ID to read their live translation. No account needed.",
