@@ -17,10 +17,19 @@ const schema = z.object({
   DATABASE_PATH: z.string().default("./data/app.db"),
   APP_NAME: z.string().default("LisanCast"),
 
-  TRANSLATION_PROVIDER: z.enum(["free", "google", "deepl", "claude", "mock"]).default("free"),
+  TRANSLATION_PROVIDER: z.enum(["free", "google", "deepl", "azure", "claude", "mock"]).default("free"),
+  // Optional: a different (usually cheaper) provider for in-progress sentences only; finished sentences
+  // always use TRANSLATION_PROVIDER. Blank = same as TRANSLATION_PROVIDER.
+  TRANSLATION_PREVIEW_PROVIDER: z.preprocess(
+    (v) => (typeof v === "string" && !v.trim() ? undefined : v),
+    z.enum(["free", "google", "deepl", "azure", "claude", "mock"]).optional(),
+  ),
   GOOGLE_TRANSLATE_API_KEY: optional,
   DEEPL_API_KEY: optional,
   DEEPL_API_URL: z.string().default("https://api-free.deepl.com"),
+  // Azure AI Translator: Keys and Endpoint page of the Translator resource.
+  AZURE_TRANSLATOR_KEY: optional,
+  AZURE_TRANSLATOR_REGION: z.string().default("global"),
   ANTHROPIC_API_KEY: optional,
   CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
 

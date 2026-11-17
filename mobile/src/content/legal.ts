@@ -4,7 +4,7 @@
  */
 import type { UiLang } from "@/i18n";
 
-export const LEGAL_UPDATED = "2026-11-16";
+export const LEGAL_UPDATED = "2026-11-17";
 const COMPANY = process.env.EXPO_PUBLIC_COMPANY_NAME || "LisanCast";
 const EMAIL = process.env.EXPO_PUBLIC_SUPPORT_EMAIL || "support@your-domain.com";
 /** Where users contact support (Contact us, account deletion requests). */
@@ -41,7 +41,7 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
     },
     {
       heading: "Service providers",
-      body: "We share data only as needed with providers that operate the service on our behalf: the translation provider (DeepL, or Google Cloud or Anthropic if we switch), Google Gemini (to write AI summaries and to generate the read-aloud voice from translated text; we ask Google not to store it), our email provider (to send codes), our hosting provider (Oracle Cloud), and error monitoring. Google receives sign-in requests if you choose \"Continue with Google\". These providers process data under their own privacy terms and only to provide the service to us.",
+      body: "We share data only as needed with providers that operate the service on our behalf: the translation provider (Microsoft Azure AI Translator, or DeepL, Google Cloud or Anthropic if we switch), Google Gemini (to write AI summaries and to generate the read-aloud voice from translated text; we ask Google not to store it), our email provider (to send codes), our hosting provider (Oracle Cloud), and error monitoring. Google receives sign-in requests if you choose \"Continue with Google\". These providers process data under their own privacy terms and only to provide the service to us.",
     },
     {
       heading: "Who can see your sessions",
@@ -87,7 +87,7 @@ const PRIVACY: Record<UiLang, LegalSection[]> = {
     },
     {
       heading: "مزوّدو الخدمة",
-      body: "نشارك البيانات عند الحاجة فقط مع مزوّدين يشغّلون الخدمة نيابةً عنا: مزوّد الترجمة (DeepL، أو Google Cloud أو Anthropic إذا غيّرناه)، وGoogle Gemini (لكتابة ملخصات الذكاء الاصطناعي وتوليد صوت القراءة من النص المترجم، ونطلب من Google عدم الاحتفاظ به)، ومزوّد البريد الإلكتروني (لإرسال الرموز)، ومزوّد الاستضافة (Oracle Cloud)، وخدمة مراقبة الأخطاء. تتلقى Google طلبات تسجيل الدخول إذا اخترت \"المتابعة باستخدام Google\". يعالج هؤلاء المزوّدون البيانات وفق شروط الخصوصية الخاصة بهم ولتقديم الخدمة لنا فقط.",
+      body: "نشارك البيانات عند الحاجة فقط مع مزوّدين يشغّلون الخدمة نيابةً عنا: مزوّد الترجمة (Microsoft Azure AI Translator، أو DeepL أو Google Cloud أو Anthropic إذا غيّرناه)، وGoogle Gemini (لكتابة ملخصات الذكاء الاصطناعي وتوليد صوت القراءة من النص المترجم، ونطلب من Google عدم الاحتفاظ به)، ومزوّد البريد الإلكتروني (لإرسال الرموز)، ومزوّد الاستضافة (Oracle Cloud)، وخدمة مراقبة الأخطاء. تتلقى Google طلبات تسجيل الدخول إذا اخترت \"المتابعة باستخدام Google\". يعالج هؤلاء المزوّدون البيانات وفق شروط الخصوصية الخاصة بهم ولتقديم الخدمة لنا فقط.",
     },
     {
       heading: "من يمكنه رؤية جلساتك",

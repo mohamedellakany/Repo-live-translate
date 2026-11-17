@@ -194,13 +194,14 @@ Settings live in `server/.env` for local development and `server/.env.production
 
 ### Translation providers
 
-Set `TRANSLATION_PROVIDER`:
+Set `TRANSLATION_PROVIDER`. Optionally, `TRANSLATION_PREVIEW_PROVIDER` uses a different (cheaper) provider for sentences still being spoken, while finished sentences use `TRANSLATION_PROVIDER`.
 
 | Provider | Key needed | Latency | Notes |
 | --- | --- | --- | --- |
 | `free` (default) | none | ~60–500 ms | Google's public web endpoint. **Development only**: unofficial and rate-limited. |
 | `google` | `GOOGLE_TRANSLATE_API_KEY` | ~100–200 ms | **Recommended for production.** Google Cloud Translation v2. |
 | `deepl` | `DEEPL_API_KEY` | ~200–400 ms | Excellent quality, uses previous sentences as context. |
+| `azure` (used in production) | `AZURE_TRANSLATOR_KEY`, `AZURE_TRANSLATOR_REGION` | ~100–400 ms | Microsoft Azure AI Translator. Fast and inexpensive; the free F0 tier includes 2M characters per month. Supports all of LisanCast's languages (Dari as `prs`). |
 | `claude` | `ANTHROPIC_API_KEY` | ~1–2 s | Best with dialects, idioms and unpunctuated speech. Model via `CLAUDE_MODEL` (default `claude-opus-5-5`, low effort). Server-side refusal fallbacks enabled. For lower latency and cost, set `CLAUDE_MODEL=claude-haiku-5-5`. |
 
 ### AI summaries

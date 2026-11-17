@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { AzureProvider } from "./providers/azure.js";
 import { ClaudeProvider } from "./providers/claude.js";
 import { DeepLProvider } from "./providers/deepl.js";
 import { FreeGoogleProvider } from "./providers/free.js";
@@ -6,14 +7,19 @@ import { GoogleCloudProvider } from "./providers/google.js";
 import { MockProvider } from "./providers/mock.js";
 import type { TranslateRequest, TranslationProvider } from "./types.js";
 
-function createProvider(): TranslationProvider {
-  switch (config.TRANSLATION_PROVIDER) {
+type ProviderName = typeof config.TRANSLATION_PROVIDER;
+
+function createProvider(name: ProviderName): TranslationProvider {
+  switch (name) {
     case "google":
       if (!config.GOOGLE_TRANSLATE_API_KEY) throw new Error("GOOGLE_TRANSLATE_API_KEY is required");
       return new GoogleCloudProvider(config.GOOGLE_TRANSLATE_API_KEY);
     case "deepl":
       if (!config.DEEPL_API_KEY) throw new Error("DEEPL_API_KEY is required");
       return new DeepLProvider(config.DEEPL_API_KEY, config.DEEPL_API_URL);
+    case "azure":
+      if (!config.AZURE_TRANSLATOR_KEY) throw new Error("AZURE_TRANSLATOR_KEY is required");
+      return new AzureProvider(config.AZURE_TRANSLATOR_KEY, config.AZURE_TRANSLATOR_REGION);
     case "claude":
       return new ClaudeProvider(config.ANTHROPIC_API_KEY, config.CLAUDE_MODEL);
     case "mock":
@@ -47,10 +53,22 @@ const TIMEOUT_MS = { partial: 4_000, final: 10_000 };
 
 export class Translator {
   private cache = new LruCache<string>(5_000);
-  constructor(private readonly provider: TranslationProvider = createProvider()) {}
+  /** `provider` translates finished sentences; `preview` translates sentences still being spoken. */
+  private readonly preview: TranslationProvider;
+  constructor(
+    private readonly provider: TranslationProvider = createProvider(config.TRANSLATION_PROVIDER),
+    preview?: TranslationProvider,
+  ) {
+    this.preview =
+      preview ??
+      (config.TRANSLATION_PREVIEW_PROVIDER && config.TRANSLATION_PREVIEW_PROVIDER !== config.TRANSLATION_PROVIDER
+        ? createProvider(config.TRANSLATION_PREVIEW_PROVIDER)
+        : provider);
+  }
 
+  /** e.g. "deepl", or "deepl (previews: azure)" when previews use a different provider. */
   get providerName() {
-    return this.provider.name;
+    return this.preview === this.provider ? this.provider.name : `${this.provider.name} (previews: ${this.preview.name})`;
   }
 
   /** `meter.chars` is incremented by the characters actually sent to the provider (cache hits are free). */
@@ -58,13 +76,15 @@ export class Translator {
     const text = req.text.trim();
     if (!text || req.from === req.to) return text;
 
-    const key = `${req.from}|${req.to}|${text}`;
+    const provider = req.kind === "partial" ? this.preview : this.provider;
+    // Keyed by provider, so a finished sentence never reuses a cheaper preview translation of the same text.
+    const key = `${provider.name}|${req.from}|${req.to}|${text}`;
     const cached = this.cache.get(key);
     if (cached !== undefined) return cached;
 
     const timeout = AbortSignal.timeout(TIMEOUT_MS[req.kind]);
     const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
-    const result = await this.provider.translate({ ...req, text, signal });
+    const result = await provider.translate({ ...req, text, signal });
     if (req.meter) req.meter.chars += text.length;
     this.cache.set(key, result);
     return result;
