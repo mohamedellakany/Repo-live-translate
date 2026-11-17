@@ -30,6 +30,9 @@ const schema = z.object({
   // Azure AI Translator: Keys and Endpoint page of the Translator resource.
   AZURE_TRANSLATOR_KEY: optional,
   AZURE_TRANSLATOR_REGION: z.string().default("global"),
+  // Monthly character allowance of the main translation provider (Azure F0 = 2,000,000). The server
+  // warns in its log at 80% and 100%. 0 turns the warnings off; usage is still counted.
+  TRANSLATION_MONTHLY_LIMIT: z.coerce.number().int().nonnegative().default(2_000_000),
   ANTHROPIC_API_KEY: optional,
   CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
 

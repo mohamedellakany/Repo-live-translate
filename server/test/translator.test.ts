@@ -35,3 +35,13 @@ test("without a preview provider, everything uses the main one", async () => {
   assert.equal(t.providerName, "deepl");
   assert.equal(await t.translate({ kind: "partial", text: "سلام", from: "ar", to: "en" }), "deepl:سلام");
 });
+
+test("usage is reported only for requests actually sent to a provider", async () => {
+  const t = new Translator(fake("azure"));
+  const seen: [string, number][] = [];
+  t.onUsage = (provider, chars) => seen.push([provider, chars]);
+  await t.translate({ kind: "final", text: " مرحبا ", from: "ar", to: "en" });
+  await t.translate({ kind: "final", text: "مرحبا", from: "ar", to: "en" }); // cache hit
+  await t.translate({ kind: "final", text: "hello", from: "en", to: "en" }); // same language, nothing sent
+  assert.deepEqual(seen, [["azure", 5]]);
+});

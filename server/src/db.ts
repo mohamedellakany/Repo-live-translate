@@ -81,6 +81,16 @@ const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_session_listeners_user ON session_listeners(user_id, joined_at DESC);
   `,
+  // 2: characters sent to each translation provider per calendar month (UTC), e.g. ('2026-11', 'azure')
+  `
+  CREATE TABLE translation_usage (
+    month    TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    chars    BIGINT NOT NULL DEFAULT 0,
+    calls    BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (month, provider)
+  );
+  `,
 ];
 
 export async function migrate() {

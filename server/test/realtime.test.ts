@@ -309,3 +309,19 @@ test("read-aloud audio is refused when TTS isn't configured, and no audio is str
   assert.equal(audio, false);
   await emitAck(speaker, "speaker:stop", {});
 });
+
+test("translation usage is added up per month and provider", async () => {
+  const { recordUsage, flushUsage, usageHistory, usageMonth } = await import("../src/translation/usage.js");
+  recordUsage("azure", 120);
+  recordUsage("azure", 30);
+  await flushUsage();
+  recordUsage("azure", 50);
+  recordUsage("deepl", 7);
+  await flushUsage();
+  const rows = await usageHistory();
+  const month = usageMonth();
+  const azure = rows.find((r) => r.month === month && r.provider === "azure");
+  const deepl = rows.find((r) => r.month === month && r.provider === "deepl");
+  assert.deepEqual(azure, { month, provider: "azure", chars: 200, calls: 3 });
+  assert.deepEqual(deepl, { month, provider: "deepl", chars: 7, calls: 1 });
+});

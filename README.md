@@ -102,7 +102,7 @@ server/              Node.js + TypeScript backend
   src/summary.ts       AI summaries (Gemini or Claude), automatic when a session ends
   src/routes/          REST: auth, speaker lookup, session history, listener library
   src/db.ts            PostgreSQL (Neon) with automatic migrations
-  src/scripts/         backup, restore-backup, import-sqlite (one-time move from SQLite)
+  src/scripts/         backup, restore-backup, usage, import-sqlite (one-time move from SQLite)
   test/                Integration tests
 mobile/              Expo (React Native) app: iOS, Android, Web
   src/app/             Screens (Expo Router): home, login, register, speak, listen/[username],
@@ -240,6 +240,7 @@ The app uses PostgreSQL through `DATABASE_URL`. In production it's hosted on [Ne
 - Tables are created and updated automatically when the server starts (`src/db.ts`).
 - **Browse the data** in Neon's dashboard (Tables / SQL Editor), or in TablePlus, DBeaver or `psql` with the connection string. Changes there are live, so use a read-only role for everyday browsing.
 - **Backups:** Neon keeps its own restore history (6 hours on the free plan, up to 7 days on Launch). For an extra independent copy, `npm run backup` exports every table to `BACKUP_DIR/app-<date>.json.gz` (on the server: `docker compose exec -T server node dist/scripts/backup.js`), and `npm run restore-backup <file>` loads one into an **empty** database, such as a new Neon branch.
+- **Translation usage:** the server counts the characters it sends to the translation provider each month. `npm run usage` shows the totals and how much of `TRANSLATION_MONTHLY_LIMIT` (default 2,000,000, Azure's free F0 allowance) is left; on the server: `docker compose exec -T server node dist/scripts/usage.js`. The log also warns at 80% and 100%.
 - **Moving from SQLite** (one time): `npm run import-sqlite` copies everything from `DATABASE_PATH` into an empty `DATABASE_URL` and checks the row counts. The SQLite file is only read.
 
 ## Deployment

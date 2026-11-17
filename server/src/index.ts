@@ -5,6 +5,7 @@ import { createApp } from "./app.js";
 import { config, features, summaryProvider } from "./config.js";
 import { attachRealtime } from "./realtime.js";
 import { translator } from "./translation/index.js";
+import { flushUsage, recordUsage } from "./translation/usage.js";
 
 const httpServer = createServer(createApp());
 const io = new Server(httpServer, {
@@ -15,6 +16,7 @@ const io = new Server(httpServer, {
   perMessageDeflate: false,
 });
 attachRealtime(io);
+translator.onUsage = recordUsage;
 
 httpServer.listen(config.PORT, () => {
   console.log(`LisanCast server listening on http://localhost:${config.PORT}`);
@@ -38,7 +40,8 @@ httpServer.listen(config.PORT, () => {
 
 const shutdown = () => {
   io.close();
-  httpServer.close(() => process.exit(0));
+  // Save the latest translation usage counts before exiting.
+  void flushUsage().finally(() => httpServer.close(() => process.exit(0)));
   setTimeout(() => process.exit(0), 3_000).unref();
 };
 process.on("SIGTERM", shutdown);

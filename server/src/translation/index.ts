@@ -51,8 +51,12 @@ class LruCache<V> {
 
 const TIMEOUT_MS = { partial: 4_000, final: 10_000 };
 
+/** Called after every request actually sent to a provider (not cache hits), with the characters sent. */
+export type UsageListener = (provider: string, chars: number) => void;
+
 export class Translator {
   private cache = new LruCache<string>(5_000);
+  onUsage?: UsageListener;
   /** `provider` translates finished sentences; `preview` translates sentences still being spoken. */
   private readonly preview: TranslationProvider;
   constructor(
@@ -86,6 +90,7 @@ export class Translator {
     const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
     const result = await provider.translate({ ...req, text, signal });
     if (req.meter) req.meter.chars += text.length;
+    this.onUsage?.(provider.name, text.length);
     this.cache.set(key, result);
     return result;
   }
@@ -93,13 +98,15 @@ export class Translator {
   /** Translate one known phrase at boot so a misconfigured provider is obvious immediately. */
   async selfTest(): Promise<{ ok: true; ms: number; sample: string } | { ok: false; error: string }> {
     const started = performance.now();
+    const text = "مرحبا بالجميع";
     try {
       const sample = await this.provider.translate({
-        text: "مرحبا بالجميع",
+        text,
         from: "ar",
         to: "en",
         signal: AbortSignal.timeout(TIMEOUT_MS.final),
       });
+      this.onUsage?.(this.provider.name, text.length);
       return { ok: true, ms: Math.round(performance.now() - started), sample };
     } catch (err) {
       return { ok: false, error: describeTranslationError(err) };
