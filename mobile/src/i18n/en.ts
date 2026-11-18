@@ -27,9 +27,9 @@ export const en = {
   // home
   "home.account": "Account",
   "home.signIn": "Sign in",
-  "home.title": "Understand every word, live.",
+  "home.title": "Hear every word, in your language.",
   "home.subtitle":
-    "Someone speaks Arabic or one of 13 other languages, everyone else reads the translation in real time. Meetings, lectures and conversations, without the language barrier.",
+    "Live translation for talks, lectures and meetings. Just scan and follow along, no app needed.",
   "home.chipPair": "Read in 18 languages",
   "home.chipLive": "Real-time",
   "home.followTitle": "Follow a speaker",

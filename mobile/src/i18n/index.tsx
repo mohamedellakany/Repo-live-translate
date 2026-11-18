@@ -26,7 +26,8 @@ interface I18nState {
   isRTL: boolean;
   /** Native only: the layout direction changes after the app restarts. */
   needsRestart: boolean;
-  setLang: (lang: UiLang) => void;
+  /** Returns true on native when the app must reload to flip the layout direction. */
+  setLang: (lang: UiLang) => boolean;
   t: (key: TKey, params?: Params) => string;
 }
 
@@ -65,7 +66,9 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const setLang = useCallback((next: UiLang) => {
     setLangState(next);
     storage.set(KEY, next);
-    setNeedsRestart(applyDirection(next));
+    const restart = applyDirection(next);
+    setNeedsRestart(restart);
+    return restart;
   }, []);
 
   const value = useMemo<I18nState>(

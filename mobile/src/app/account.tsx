@@ -4,6 +4,7 @@ import { Platform, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { AppHeader, Banner, Button, Card, OptionSheet, Screen, SelectRow, Sheet, SwitchRow, TextField } from "@/components/ui";
 import { useI18n, type UiLang } from "@/i18n";
+import { useSwitchLanguage } from "@/i18n/LanguageTransition";
 import { API_URL } from "@/lib/config";
 import { makeStyles, spacing, useTheme } from "@/theme";
 
@@ -15,7 +16,8 @@ const UI_LANGS: { value: UiLang; label: string }[] = [
 export default function Account() {
   const { colors, name: themeName, toggleTheme } = useTheme();
   const styles = useStyles();
-  const { t, lang, setLang, needsRestart } = useI18n();
+  const { t, lang, needsRestart } = useI18n();
+  const switchLang = useSwitchLanguage();
   const { user, ready, signOut, updateDisplayName, deleteAccount } = useAuth();
   // null = untouched, so the field shows the current name even if the account loads after first render.
   const [nameDraft, setNameDraft] = useState<string | null>(null);
@@ -146,7 +148,7 @@ export default function Account() {
         title={t("account.language")}
         options={UI_LANGS}
         selected={lang}
-        onSelect={setLang}
+        onSelect={switchLang}
       />
 
       <Sheet visible={deleting} onClose={() => setDeleting(false)} title={t("account.deleteConfirmTitle")}>

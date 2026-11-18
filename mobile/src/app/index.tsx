@@ -5,6 +5,7 @@ import { Image, Pressable, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { Button, Card, Chip, IconButton, Screen, TextField } from "@/components/ui";
 import { useI18n } from "@/i18n";
+import { useSwitchLanguage } from "@/i18n/LanguageTransition";
 import { api } from "@/lib/api";
 import { normalizeUsername } from "@/lib/format";
 import { recentSpeakers, type RecentSpeaker } from "@/lib/recentSpeakers";
@@ -14,7 +15,8 @@ export default function Home() {
   const { colors, name: themeName, toggleTheme } = useTheme();
   const styles = useStyles();
   const { user, refresh } = useAuth();
-  const { t, lang, setLang } = useI18n();
+  const { t, lang } = useI18n();
+  const switchLang = useSwitchLanguage();
   const [speakerId, setSpeakerId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -53,7 +55,7 @@ export default function Home() {
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Pressable
-            onPress={() => setLang(lang === "ar" ? "en" : "ar")}
+            onPress={() => switchLang(lang === "ar" ? "en" : "ar")}
             style={styles.langToggle}
             accessibilityRole="button"
             accessibilityLabel="Change language / تغيير اللغة"
