@@ -44,7 +44,7 @@ export default function Speak() {
   const { colors } = useTheme();
   const styles = useStyles();
   const { t } = useI18n();
-  const { user, ready } = useAuth();
+  const { user, ready, refresh } = useAuth();
   const broadcast = useBroadcast();
   const { phase, paused, connected, listeners, startedAt, livePin, lines, notice, capture } = broadcast;
 
@@ -94,7 +94,23 @@ export default function Speak() {
       allowRevisit,
     });
     if (result === "unverified") router.replace({ pathname: "/verify-email", params: { next: "/speak" } });
+    // Access was taken away since the app last checked: reload the account so the page explains why.
+    if (result === "notAllowed") refresh().catch(() => {});
   };
+
+  // Speaking is by approval. If this account doesn't have it yet, re-check once in case it was just granted.
+  const [checkingAccess, setCheckingAccess] = useState(false);
+  const checkAccess = async () => {
+    setCheckingAccess(true);
+    await refresh().catch(() => {});
+    setCheckingAccess(false);
+  };
+  const lacksAccess = !!user && !user.canSpeak;
+  useEffect(() => {
+    if (lacksAccess) refresh().catch(() => {});
+    // Only when the access state changes; `refresh` changes identity every time the user object does.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lacksAccess]);
 
   const now = useNow(phase === "live");
 
@@ -108,6 +124,21 @@ export default function Speak() {
     );
   }
   if (!user.emailVerified) return <Redirect href={{ pathname: "/verify-email", params: { next: "/speak" } }} />;
+  if (!user.canSpeak && phase === "setup") {
+    return (
+      <Screen scroll header={<AppHeader title={t("speak.header")} />}>
+        <Card style={{ gap: spacing.md, alignItems: "center" }}>
+          <Ionicons name="mic-off-outline" size={44} color={colors.textDim} />
+          <Text style={styles.lockedTitle}>{t("speak.lockedTitle")}</Text>
+          <Text style={styles.lockedText}>{t(user.speakRequestedAt ? "home.requestPending" : "speak.lockedText")}</Text>
+          {!user.speakRequestedAt && (
+            <Button title={t("home.requestAccess")} icon="mic-outline" onPress={() => router.push("/request-speaking")} />
+          )}
+          <Button title={t("speak.checkAgain")} icon="refresh" variant="secondary" loading={checkingAccess} onPress={checkAccess} />
+        </Card>
+      </Screen>
+    );
+  }
 
   const header = (
     <AppHeader
@@ -322,6 +353,8 @@ export default function Speak() {
 }
 
 const useStyles = makeStyles((colors) => ({
+  lockedTitle: { color: colors.text, fontSize: 20, fontWeight: "700", textAlign: "center" },
+  lockedText: { color: colors.textMuted, fontSize: 15, lineHeight: 23, textAlign: "center" },
   infoRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, minHeight: 44 },
   infoLabel: { color: colors.text, fontSize: 15, fontWeight: "600", flex: 1 },
   infoValue: { color: colors.textMuted, fontSize: 15 },

@@ -65,7 +65,9 @@ export default function History() {
               <Ionicons name="albums-outline" size={44} color={colors.textDim} />
               <Text style={styles.emptyTitle}>{t("history.emptyTitle")}</Text>
               <Text style={styles.emptyText}>{t("history.emptyText")}</Text>
-              <Button title={t("home.startSpeaking")} icon="mic" variant="live" onPress={() => router.replace("/speak")} />
+              {user?.canSpeak && (
+                <Button title={t("home.startSpeaking")} icon="mic" variant="live" onPress={() => router.replace("/speak")} />
+              )}
             </View>
           }
           renderItem={({ item }) => {

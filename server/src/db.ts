@@ -91,6 +91,16 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (month, provider)
   );
   `,
+  // 3: speaking is by approval. Accounts that have already broadcast keep access; new accounts start without it.
+  `
+  ALTER TABLE users ADD COLUMN can_speak BOOLEAN NOT NULL DEFAULT FALSE;
+  UPDATE users SET can_speak = TRUE WHERE id IN (SELECT DISTINCT speaker_id FROM sessions);
+  `,
+  // 4: pending requests for speaking access, sent from the app's request form
+  `
+  ALTER TABLE users ADD COLUMN speak_requested_at TIMESTAMPTZ;
+  ALTER TABLE users ADD COLUMN speak_request_note TEXT;
+  `,
 ];
 
 export async function migrate() {
@@ -130,6 +140,9 @@ export interface UserRow {
   password_hash: string | null;
   google_sub: string | null;
   email_verified: boolean;
+  can_speak: boolean;
+  speak_requested_at: string | null;
+  speak_request_note: string | null;
   created_at: string;
 }
 export interface PublicUser {
@@ -140,6 +153,10 @@ export interface PublicUser {
   emailVerified: boolean;
   hasPassword: boolean;
   googleLinked: boolean;
+  /** Allowed to broadcast (granted with `npm run speaker -- <email> on`). */
+  canSpeak: boolean;
+  /** When the user asked for speaking access (null if they haven't, or once it's granted). */
+  speakRequestedAt: string | null;
   createdAt: string;
 }
 export type TranslationMode = "live" | "balanced" | "sentences";
@@ -185,6 +202,8 @@ export const toPublicUser = (u: UserRow): PublicUser => ({
   emailVerified: !!u.email_verified,
   hasPassword: !!u.password_hash,
   googleLinked: !!u.google_sub,
+  canSpeak: !!u.can_speak,
+  speakRequestedAt: u.can_speak ? null : u.speak_requested_at,
   createdAt: u.created_at,
 });
 
@@ -212,6 +231,19 @@ export const users = {
   updateDisplayName: (id: string, displayName: string) => run("UPDATE users SET display_name = $1 WHERE id = $2", [displayName, id]),
   setEmailVerified: (id: string) => run("UPDATE users SET email_verified = TRUE WHERE id = $1", [id]),
   setPassword: (id: string, hash: string) => run("UPDATE users SET password_hash = $1 WHERE id = $2", [hash, id]),
+  /** Granting clears any pending request; taking access away leaves the account able to ask again. */
+  setCanSpeak: (id: string, canSpeak: boolean) =>
+    run(
+      `UPDATE users SET can_speak = $1,
+         speak_requested_at = CASE WHEN $1 THEN NULL ELSE speak_requested_at END,
+         speak_request_note = CASE WHEN $1 THEN NULL ELSE speak_request_note END
+       WHERE id = $2`,
+      [canSpeak, id],
+    ),
+  requestSpeaking: (id: string, note: string) =>
+    run("UPDATE users SET speak_requested_at = now(), speak_request_note = $1 WHERE id = $2", [note, id]),
+  speakers: () => all<UserRow>("SELECT * FROM users WHERE can_speak ORDER BY created_at"),
+  speakRequests: () => all<UserRow>("SELECT * FROM users WHERE NOT can_speak AND speak_requested_at IS NOT NULL ORDER BY speak_requested_at"),
   linkGoogle: (id: string, sub: string) => run("UPDATE users SET google_sub = $1 WHERE id = $2", [sub, id]),
   remove: (id: string) => run("DELETE FROM users WHERE id = $1", [id]),
 };

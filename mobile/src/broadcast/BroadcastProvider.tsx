@@ -34,7 +34,7 @@ export interface GoLiveOptions {
   mode: TranslationMode;
   allowRevisit: boolean;
 }
-export type GoLiveResult = "ok" | "unverified" | "failed";
+export type GoLiveResult = "ok" | "unverified" | "notAllowed" | "failed";
 
 interface BroadcastState {
   phase: BroadcastPhase;
@@ -243,6 +243,7 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
         if (!res.ok) {
           setPhase("setup");
           if (res.error === "email_unverified") return "unverified";
+          if (res.error === "speaking_not_allowed") return "notAllowed";
           setNotice(res.error === "unauthorized" ? t("speak.sessionExpired") : t("speak.startFailed"));
           return "failed";
         }

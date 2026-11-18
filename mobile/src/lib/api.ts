@@ -8,6 +8,10 @@ export interface User {
   emailVerified: boolean;
   hasPassword: boolean;
   googleLinked: boolean;
+  /** Speaking (broadcasting) is by approval; listening is open to everyone. */
+  canSpeak: boolean;
+  /** When the user asked for speaking access; null if they haven't (or already have it). */
+  speakRequestedAt: string | null;
   createdAt: string;
 }
 export interface SpeakerInfo {
@@ -142,6 +146,7 @@ export const api = {
   resetPassword: (input: { email: string; code: string; password: string }) =>
     request<AuthResult>("POST", "/api/auth/password/reset", input),
   me: () => request<{ user: User }>("GET", "/api/auth/me"),
+  requestSpeaking: (note: string) => request<{ user: User }>("POST", "/api/auth/speaking-request", { note }),
   updateMe: (displayName: string) => request<{ user: User }>("PATCH", "/api/auth/me", { displayName }),
   deleteAccount: (confirm: { password?: string; confirmUsername?: string }) => request<void>("DELETE", "/api/auth/me", confirm),
 

@@ -32,6 +32,19 @@ export function verifySignupToken(token: string): GoogleProfile | null {
   }
 }
 
+/** Link token in the "speaking access request" email that lets the admin approve with one click. */
+export const signApproveToken = (userId: string) =>
+  jwt.sign({ typ: "approve_speaker", uid: userId }, config.JWT_SECRET, { expiresIn: "30d" });
+
+export function verifyApproveToken(token: string): string | null {
+  try {
+    const p = jwt.verify(token, config.JWT_SECRET) as { typ?: string; uid?: string };
+    return p.typ === "approve_speaker" && p.uid ? p.uid : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Returns the user for a valid session token, or null for missing/invalid/expired tokens. */
 export async function userFromToken(token: string | undefined | null): Promise<UserRow | null> {
   if (!token) return null;

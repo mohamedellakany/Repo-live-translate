@@ -37,6 +37,9 @@ const AR: Record<string, string> = {
   "Stop the live session before deleting it": "أوقف البث المباشر قبل حذف الجلسة",
   "Too many attempts. Please try again later.": "محاولات كثيرة. حاول مرة أخرى لاحقاً.",
   "Not found": "غير موجود",
+  "Tell us a little more (at least 10 characters)": "أخبرنا بالمزيد قليلاً (10 أحرف على الأقل)",
+  "Please keep it under 1000 characters": "يرجى ألا يتجاوز النص 1000 حرف",
+  "Verify your email first": "أكّد بريدك الإلكتروني أولاً",
   "Internal server error": "خطأ في الخادم",
 };
 

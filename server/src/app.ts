@@ -5,6 +5,7 @@ import { config, features } from "./config.js";
 import { localizeErrors } from "./i18n.js";
 import { Sentry } from "./instrument.js";
 import { DEFAULT_TARGET, LANGUAGES, SOURCE_LANGUAGES, TARGET_LANGUAGES } from "./languages.js";
+import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { libraryRouter } from "./routes/library.js";
 import { sessionsRouter } from "./routes/sessions.js";
@@ -30,6 +31,7 @@ export function createApp() {
   /** Public client configuration: which optional features this server has enabled. */
   app.get("/api/config", (_req, res) => res.json({ appName: config.APP_NAME, features, languages: languages() }));
   app.use("/api/auth", authRouter);
+  app.use("/api/admin", adminRouter);
   app.use("/api/speakers", speakersRouter);
   app.use("/api/sessions", sessionsRouter);
   app.use("/api/library", libraryRouter);

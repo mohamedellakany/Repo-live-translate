@@ -13,7 +13,7 @@ import { makeStyles, radius, spacing, useTheme } from "@/theme";
 export default function Home() {
   const { colors, name: themeName, toggleTheme } = useTheme();
   const styles = useStyles();
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
   const { t, lang, setLang } = useI18n();
   const [speakerId, setSpeakerId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +23,10 @@ export default function Home() {
   useFocusEffect(
     useCallback(() => {
       recentSpeakers.list().then(setRecent);
-    }, []),
+      // Pick up speaking access granted since the app last checked.
+      if (user && !user.canSpeak) refresh().catch(() => {});
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [user?.id, user?.canSpeak]),
   );
 
   const join = async (raw = speakerId) => {
@@ -129,8 +132,19 @@ export default function Home() {
         </View>
         {user ? (
           <>
-            <Text style={styles.cardText}>{t("home.speakTextUser", { username: user.username })}</Text>
-            <Button title={t("home.startSpeaking")} icon="mic" variant="live" size="lg" onPress={() => router.push("/speak")} />
+            {user.canSpeak ? (
+              <>
+                <Text style={styles.cardText}>{t("home.speakTextUser", { username: user.username })}</Text>
+                <Button title={t("home.startSpeaking")} icon="mic" variant="live" size="lg" onPress={() => router.push("/speak")} />
+              </>
+            ) : (
+              <>
+                <Text style={styles.cardText}>{t(user.speakRequestedAt ? "home.requestPending" : "home.speakTextLocked")}</Text>
+                {!user.speakRequestedAt && (
+                  <Button title={t("home.requestAccess")} icon="mic-outline" onPress={() => router.push("/request-speaking")} />
+                )}
+              </>
+            )}
             <Button title={t("home.pastSessions")} icon="time-outline" variant="secondary" onPress={() => router.push("/history")} />
           </>
         ) : (

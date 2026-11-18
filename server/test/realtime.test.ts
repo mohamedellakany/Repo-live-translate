@@ -6,6 +6,7 @@ import { io as connect, type Socket } from "socket.io-client";
 
 process.env.NODE_ENV = "test";
 process.env.TRANSLATION_PROVIDER = "mock";
+process.env.ADMIN_EMAIL = "owner@x.com";
 // A throwaway PostgreSQL database, wiped before every run. Never point this at real data.
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://localhost:54329/lisancast_test";
 {
@@ -19,7 +20,7 @@ const { createServer } = await import("node:http");
 const { Server } = await import("socket.io");
 const { createApp } = await import("../src/app.js");
 const { attachRealtime } = await import("../src/realtime.js");
-const { devOutbox } = await import("../src/mailer.js");
+const { devOutbox, devMessages } = await import("../src/mailer.js");
 const { signSignupToken } = await import("../src/auth.js");
 
 let base = "";
@@ -71,7 +72,14 @@ async function verifiedSpeaker(username: string) {
   assert.equal(reg.status, 201);
   const v = await post("/api/auth/verify-email", { code: lastCode(email, "verify_email") }, reg.body.token);
   assert.equal(v.body.user.emailVerified, true);
+  await allowSpeaking(reg.body.user.id);
   return reg.body.token as string;
+}
+
+/** What `npm run speaker -- <email> on` does. */
+async function allowSpeaking(userId: string) {
+  const { users } = await import("../src/db.js");
+  await users.setCanSpeak(userId, true);
 }
 
 /* --------------------------------- tests --------------------------------- */
@@ -99,6 +107,11 @@ test("email OTP verification is required before going live", async () => {
   assert.equal((await post("/api/auth/verify-email/send", {}, token)).status, 429); // resend cooldown
   assert.equal((await post("/api/auth/verify-email", { code }, token)).body.user.emailVerified, true);
 
+  // Verified, but speaking is by approval: new accounts can listen, not broadcast.
+  assert.equal(reg.body.user.canSpeak, false);
+  assert.equal((await emitAck(s, "speaker:start", { sourceLang: "ar" })).error, "speaking_not_allowed");
+  await allowSpeaking(reg.body.user.id);
+  assert.equal((await call("GET", "/api/auth/me", undefined, token)).body.user.canSpeak, true);
   assert.equal((await emitAck(s, "speaker:start", { sourceLang: "ar" })).ok, true); // same socket, no reconnect needed
   await emitAck(s, "speaker:stop", {});
 });
@@ -324,4 +337,43 @@ test("translation usage is added up per month and provider", async () => {
   const deepl = rows.find((r) => r.month === month && r.provider === "deepl");
   assert.deepEqual(azure, { month, provider: "azure", chars: 200, calls: 3 });
   assert.deepEqual(deepl, { month, provider: "deepl", chars: 7, calls: 1 });
+});
+
+test("speaking access: request form, owner email, one-click approval", async () => {
+  const email = "asker@x.com";
+  const reg = await post("/api/auth/register", { username: "asker", email, displayName: "Asker", password: "password123" });
+  const token = reg.body.token;
+  assert.equal((await post("/api/auth/speaking-request", { note: "I teach a weekly class" }, token)).status, 403); // unverified
+  // Verified directly: the email-code endpoints' rate limit is shared with the other tests.
+  await (await import("../src/db.js")).users.setEmailVerified(reg.body.user.id);
+
+  assert.equal((await post("/api/auth/speaking-request", { note: "hi" }, token)).status, 400);
+  const sent = await post("/api/auth/speaking-request", { note: "Friday talks at our mosque, Arabic to English" }, token);
+  assert.equal(sent.status, 200);
+  assert.equal(sent.body.user.canSpeak, false);
+  assert.ok(sent.body.user.speakRequestedAt);
+  // Asking again soon after doesn't email the owner twice.
+  await post("/api/auth/speaking-request", { note: "Friday talks at our mosque, Arabic to English" }, token);
+  const toOwner = devMessages.filter((m) => m.to === "owner@x.com" && m.subject.includes("@asker"));
+  assert.equal(toOwner.length, 1);
+  assert.match(toOwner[0].text, /Friday talks at our mosque/);
+
+  const link = toOwner[0].text.match(/https?:\/\/\S+approve-speaker\?token=\S+/)![0];
+  const path = link.replace(/^https?:\/\/[^/]+/, "");
+  assert.equal((await fetch(base + path.replace(/token=.*/, "token=forged"))).status, 400);
+  // Opening the link (as email scanners do) only shows a confirmation page.
+  const preview = await fetch(base + path);
+  assert.equal(preview.status, 200);
+  assert.match(await preview.text(), /Give speaking access\?/);
+  assert.equal((await call("GET", "/api/auth/me", undefined, token)).body.user.canSpeak, false);
+
+  const approved = await fetch(base + path, { method: "POST" });
+  assert.match(await approved.text(), /can now speak/);
+  const me = (await call("GET", "/api/auth/me", undefined, token)).body.user;
+  assert.equal(me.canSpeak, true);
+  assert.equal(me.speakRequestedAt, null);
+  assert.ok(devMessages.some((m) => m.to === email && m.subject.includes("you can now speak")));
+  const s = open(token);
+  assert.equal((await emitAck(s, "speaker:start", { sourceLang: "ar" })).ok, true);
+  await emitAck(s, "speaker:stop", {});
 });

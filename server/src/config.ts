@@ -71,6 +71,8 @@ const schema = z.object({
   SMTP_USER: optional,
   SMTP_PASS: optional,
   MAIL_FROM: optional,
+  // Where speaking-access requests are emailed (defaults to SMTP_USER, the address that sends the codes).
+  ADMIN_EMAIL: optional,
 
   SENTRY_DSN: optional,
   BACKUP_DIR: z.string().default("./data/backups"),

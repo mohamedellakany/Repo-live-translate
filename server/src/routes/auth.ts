@@ -2,10 +2,11 @@ import { Router, type Response } from "express";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { requireAuth, signSignupToken, signToken, verifySignupToken } from "../auth.js";
+import { requireAuth, signApproveToken, signSignupToken, signToken, verifySignupToken } from "../auth.js";
+import { config } from "../config.js";
 import { toPublicUser, users, type UserRow } from "../db.js";
 import { verifyGoogleIdToken } from "../google.js";
-import { sendCodeEmail } from "../mailer.js";
+import { sendCodeEmail, sendSpeakingRequestEmail } from "../mailer.js";
 import { CODE_ERRORS, issueCode, verifyCode } from "../otp.js";
 import { forceEndSpeaker } from "../realtime.js";
 
@@ -15,6 +16,7 @@ const limiter = (limit: number) =>
   rateLimit({ windowMs: 15 * 60_000, limit, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Too many attempts. Please try again later." } });
 const authLimiter = limiter(30);
 const codeLimiter = limiter(15);
+const requestLimiter = limiter(10);
 
 const RESERVED = new Set(["admin", "root", "support", "api", "listen", "speak", "login", "register", "me", "privacy", "terms"]);
 
@@ -217,6 +219,34 @@ authRouter.patch("/me", requireAuth, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
   await users.updateDisplayName(req.user!.id, parsed.data.displayName);
   res.json({ user: toPublicUser((await users.byId(req.user!.id))!) });
+});
+
+/* ---------------------------- speaking access ---------------------------- */
+
+const REQUEST_EMAIL_EVERY_MS = 12 * 60 * 60_000;
+
+/** Ask for speaking access. Emails the app owner a one-click approval link. */
+authRouter.post("/speaking-request", requireAuth, requestLimiter, async (req, res) => {
+  const parsed = z
+    .object({ note: z.string().trim().min(10, "Tell us a little more (at least 10 characters)").max(1000, "Please keep it under 1000 characters") })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
+  const user = req.user!;
+  if (!user.email_verified) return res.status(403).json({ error: "Verify your email first" });
+  if (!user.can_speak) {
+    const recentlyAsked = !!user.speak_requested_at && Date.now() - Date.parse(user.speak_requested_at) < REQUEST_EMAIL_EVERY_MS;
+    await users.requestSpeaking(user.id, parsed.data.note);
+    const admin = config.ADMIN_EMAIL ?? config.SMTP_USER;
+    if (!recentlyAsked && admin) {
+      const approveUrl = `${req.protocol}://${req.get("host")}/api/admin/approve-speaker?token=${signApproveToken(user.id)}`;
+      await sendSpeakingRequestEmail(admin, toPublicUser(user), parsed.data.note, approveUrl).catch((err) =>
+        console.error("[mail] speaking request email failed", err),
+      );
+    } else if (!admin) {
+      console.warn(`[speaking] @${user.username} requested speaking access, but ADMIN_EMAIL/SMTP_USER isn't set to notify anyone.`);
+    }
+  }
+  res.json({ user: toPublicUser((await users.byId(user.id))!) });
 });
 
 /** Permanently delete the account, its sessions and transcripts (App Store requirement). */

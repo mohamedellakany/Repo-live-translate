@@ -460,6 +460,7 @@ function registerSpeakerHandlers(socket: Socket) {
     const user = socket.data.user ? await users.byId((socket.data.user as UserRow).id) : undefined;
     if (!user) return ack({ ok: false, error: "unauthorized" });
     if (!user.email_verified) return ack({ ok: false, error: "email_unverified" });
+    if (!user.can_speak) return ack({ ok: false, error: "speaking_not_allowed" });
     socket.data.user = user;
 
     const parsed = startSchema.safeParse(raw ?? {});

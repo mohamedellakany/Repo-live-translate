@@ -18,7 +18,8 @@
     "backup:dev": "tsx --env-file-if-exists=.env src/scripts/backup.ts",
     "import-sqlite": "tsx --env-file-if-exists=.env src/scripts/import-sqlite.ts",
     "restore-backup": "tsx --env-file-if-exists=.env src/scripts/restore-backup.ts",
-    "usage": "tsx --env-file-if-exists=.env src/scripts/usage.ts"
+    "usage": "tsx --env-file-if-exists=.env src/scripts/usage.ts",
+    "speaker": "tsx --env-file-if-exists=.env src/scripts/speaker.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.3.0",
