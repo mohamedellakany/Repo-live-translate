@@ -44,6 +44,11 @@ const schema = z.object({
   ),
   GEMINI_API_KEY: optional,
   GEMINI_MODEL: z.string().default("gemini-3.8-flash"),
+  // Used when GEMINI_MODEL is busy or rate-limited (after one retry). Blank turns the fallback off.
+  GEMINI_FALLBACK_MODEL: z
+    .string()
+    .optional()
+    .transform((v) => (v === undefined ? "gemini-3.5-flash-lite" : v.trim() || undefined)),
   // Natural read-aloud voice for listeners (Gemini TTS, uses GEMINI_API_KEY). Set TTS_ENABLED=false to use the phones' own voices.
   TTS_ENABLED: z
     .string()

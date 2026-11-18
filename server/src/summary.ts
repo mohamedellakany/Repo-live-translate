@@ -5,6 +5,7 @@ import { z } from "zod";
 import { config, summaryProvider } from "./config.js";
 import { sessions, type Segment } from "./db.js";
 import { DEFAULT_TARGET, LANGUAGES } from "./languages.js";
+import { BadOutputError, withFallbacks, type Attempt } from "./retry.js";
 
 export const SummarySchema = z.object({
   title: z.string().describe("A short, specific title for the session (max ~8 words)"),
@@ -77,10 +78,27 @@ export function summarizeEndedSession(sessionId: string, pendingSegments: Promis
 let gemini: GoogleGenAI | null = null;
 const summaryJsonSchema = z.toJSONSchema(SummarySchema, { target: "draft-2020-12" });
 
+/** Busy or rate-limited: wait a moment and retry the main model once, then try the lighter fallback model. */
+function geminiAttempts(): Attempt[] {
+  const attempts: Attempt[] = [{ model: config.GEMINI_MODEL }, { model: config.GEMINI_MODEL, delayMs: 3_000 }];
+  if (config.GEMINI_FALLBACK_MODEL && config.GEMINI_FALLBACK_MODEL !== config.GEMINI_MODEL) {
+    attempts.push({ model: config.GEMINI_FALLBACK_MODEL });
+  }
+  return attempts;
+}
+
 async function withGemini(prompt: string): Promise<SummaryContent> {
+  return withFallbacks(geminiAttempts(), (model) => geminiOnce(model, prompt), {
+    log: (msg) => console.warn(`[summary] ${msg}`),
+  }).catch((err) => {
+    throw err instanceof BadOutputError ? new Error("The summary could not be generated. Please try again") : err;
+  });
+}
+
+async function geminiOnce(model: string, prompt: string): Promise<SummaryContent> {
   gemini ??= new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
   const interaction = await gemini.interactions.create({
-    model: config.GEMINI_MODEL,
+    model,
     system_instruction: SYSTEM,
     input: prompt,
     response_format: { type: "text", mime_type: "application/json", schema: summaryJsonSchema },
@@ -91,15 +109,15 @@ async function withGemini(prompt: string): Promise<SummaryContent> {
   });
 
   const text = interaction.output_text;
-  if (!text) throw new Error("The summary could not be generated. Please try again");
+  if (!text) throw new BadOutputError("empty response");
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    throw new Error("The summary could not be generated. Please try again");
+    throw new BadOutputError("response wasn't valid JSON");
   }
   const parsed = SummarySchema.safeParse(json);
-  if (!parsed.success) throw new Error("The summary could not be generated. Please try again");
+  if (!parsed.success) throw new BadOutputError("response didn't match the summary format");
   return parsed.data;
 }
 
