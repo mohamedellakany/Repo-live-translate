@@ -27,6 +27,8 @@ services:
     environment:
       API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in deploy/.env}
       APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in deploy/.env}
+      API_ALIASES: ${API_ALIASES:-}
+      APP_ALIASES: ${APP_ALIASES:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ../mobile/dist:/srv/web:ro

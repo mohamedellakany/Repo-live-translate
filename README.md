@@ -7,7 +7,7 @@ A **speaker** talks (in Arabic by default, or one of 13 other languages), and an
 - **Listeners** need no account. They type the speaker ID (or scan the speaker's QR code, or open their link) and start reading. Listeners who sign in can reread the sessions they attended later.
 - One codebase for **iOS, Android and Web** (Expo / React Native).
 
-**Live app:** [app.192-18-128-201.sslip.io](https://app.192-18-128-201.sslip.io) · **API health:** [api.192-18-128-201.sslip.io/health](https://api.192-18-128-201.sslip.io/health)
+**Live app:** [app.lisancast.com](https://app.lisancast.com) · **API health:** [api.lisancast.com/health](https://api.lisancast.com/health)
 
 ```
 ┌───────────────┐  interim + final text  ┌───────────────────────────┐  source + translation  ┌───────────────┐
@@ -164,6 +164,19 @@ npm run build:apk
 - Install it by opening the file on the phone, or over USB: `~/Library/Android/sdk/platform-tools/adb install -r ~/Downloads/Apps/lisancast.apk`.
 - It's signed with a test key, so Google sign-in doesn't work in it. Use email and password.
 
+### Build and install the iPhone app
+
+Builds on this Mac with Xcode and installs on a connected (or same Wi-Fi, paired) iPhone:
+
+```bash
+cd mobile
+npm run build:ios
+```
+
+- The app talks to the live server by default (`API_URL=... WEB_URL=...` to override). The script checks that the build really contains that address.
+- With a free Apple account the app stops opening after 7 days; run the script again to renew it.
+- Options: `DEVICE=<udid>` to pick an iPhone (`xcrun devicectl list devices`), `NO_INSTALL=1` to only build.
+
 ### Styling and themes
 
 Colors come from the active theme, so styles are written with `makeStyles` instead of `StyleSheet.create`:
@@ -272,8 +285,8 @@ The database (accounts, history) is kept between deploys, and any database chang
 
 **4. Check it online.**
 
-- Web app: https://app.192-18-128-201.sslip.io (press **Cmd + Shift + R** to skip the browser cache)
-- API health: https://api.192-18-128-201.sslip.io/health should return `{"status":"ok",...}`
+- Web app: https://app.lisancast.com (press **Cmd + Shift + R** to skip the browser cache)
+- API health: https://api.lisancast.com/health should return `{"status":"ok",...}`
 
 #### Special cases
 

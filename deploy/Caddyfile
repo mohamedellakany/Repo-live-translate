@@ -1,10 +1,19 @@
 # Caddy obtains and renews HTTPS certificates automatically.
-{$API_DOMAIN} {
+#
+# API_ALIASES / APP_ALIASES (optional, in deploy/.env) are extra host names, written as ", host1, host2".
+#  - API aliases are served exactly like API_DOMAIN, so phone apps built with an older address keep working.
+#  - App aliases (e.g. the bare domain, www, or an old address on printed QR codes) redirect to APP_DOMAIN,
+#    keeping the path, so /listen/<speaker> links still land on the right page.
+
+{$API_DOMAIN}{$API_ALIASES} {
 	encode gzip
 	reverse_proxy server:4000
 }
 
-{$APP_DOMAIN} {
+{$APP_DOMAIN}{$APP_ALIASES} {
+	@alias not host {$APP_DOMAIN}
+	redir @alias https://{$APP_DOMAIN}{uri} permanent
+
 	root * /srv/web
 	encode gzip
 	header /_expo/* Cache-Control "public, max-age=31536000, immutable"
