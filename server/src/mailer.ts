@@ -48,7 +48,7 @@ export async function sendCodeEmail(to: string, name: string, code: string, purp
     <p dir="rtl" style="text-align:right">${c.ar}</p>
     <p dir="rtl" style="text-align:right;color:#555">تنتهي صلاحية الرمز خلال 10 دقائق.</p>
   </div>`;
-  await transport.sendMail({ from: config.MAIL_FROM ?? config.SMTP_USER, to, subject: c.subject(app), text, html });
+  await transport.sendMail({ from: config.MAIL_FROM ?? config.SMTP_USER, replyTo: config.MAIL_REPLY_TO, to, subject: c.subject(app), text, html });
 }
 
 const escapeHtml = (s: string) =>
@@ -59,13 +59,13 @@ const escapeHtml = (s: string) =>
 /** Other emails "sent" while SMTP isn't configured (inspected by tests). */
 export const devMessages: { to: string; subject: string; text: string }[] = [];
 
-async function send(to: string, subject: string, text: string, html: string) {
+async function send(to: string, subject: string, text: string, html: string, replyTo = config.MAIL_REPLY_TO) {
   if (!transport) {
     devMessages.push({ to, subject, text });
     if (config.NODE_ENV !== "test") console.log(`\n📧 [dev email] to ${to}: ${subject}\n${text}\n`);
     return;
   }
-  await transport.sendMail({ from: config.MAIL_FROM ?? config.SMTP_USER, to, subject, text, html });
+  await transport.sendMail({ from: config.MAIL_FROM ?? config.SMTP_USER, replyTo, to, subject, text, html });
 }
 
 const wrap = (inner: string) =>
@@ -94,7 +94,8 @@ export async function sendSpeakingRequestEmail(
     <blockquote style="margin:0 0 24px;padding:12px 16px;background:#f4f4f5;border-radius:8px;white-space:pre-wrap">${escapeHtml(note)}</blockquote>
     <p><a href="${escapeHtml(approveUrl)}" style="display:inline-block;background:#0f766e;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Review and approve</a></p>
     <p style="color:#666;font-size:13px">The link opens a confirmation page and is valid for 30 days. To decline, just ignore this email.</p>`);
-  await send(to, subject, text, html);
+  // Replying to this email answers the person who asked.
+  await send(to, subject, text, html, u.email);
 }
 
 /** To the user: their speaking access was turned on. */

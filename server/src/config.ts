@@ -76,8 +76,10 @@ const schema = z.object({
   SMTP_USER: optional,
   SMTP_PASS: optional,
   MAIL_FROM: optional,
-  // Where speaking-access requests are emailed (defaults to SMTP_USER, the address that sends the codes).
+  // Where speaking-access requests are emailed (defaults to SMTP_USER when that is an email address, e.g. Gmail).
   ADMIN_EMAIL: optional,
+  // Optional Reply-To for app emails, e.g. support@your-domain.com when sending from a no-reply address.
+  MAIL_REPLY_TO: optional,
 
   SENTRY_DSN: optional,
   BACKUP_DIR: z.string().default("./data/backups"),
@@ -123,3 +125,6 @@ if (
   console.error("JWT_SECRET must be set to a strong random value in production.");
   process.exit(1);
 }
+
+/** Who receives speaking-access requests: ADMIN_EMAIL, or the SMTP login when it's an email address (Gmail). */
+export const adminEmail = config.ADMIN_EMAIL ?? (config.SMTP_USER?.includes("@") ? config.SMTP_USER : undefined);

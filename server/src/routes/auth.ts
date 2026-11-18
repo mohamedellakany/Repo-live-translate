@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { requireAuth, signApproveToken, signSignupToken, signToken, verifySignupToken } from "../auth.js";
-import { config } from "../config.js";
+import { adminEmail } from "../config.js";
 import { toPublicUser, users, type UserRow } from "../db.js";
 import { verifyGoogleIdToken } from "../google.js";
 import { sendCodeEmail, sendSpeakingRequestEmail } from "../mailer.js";
@@ -236,14 +236,14 @@ authRouter.post("/speaking-request", requireAuth, requestLimiter, async (req, re
   if (!user.can_speak) {
     const recentlyAsked = !!user.speak_requested_at && Date.now() - Date.parse(user.speak_requested_at) < REQUEST_EMAIL_EVERY_MS;
     await users.requestSpeaking(user.id, parsed.data.note);
-    const admin = config.ADMIN_EMAIL ?? config.SMTP_USER;
+    const admin = adminEmail;
     if (!recentlyAsked && admin) {
       const approveUrl = `${req.protocol}://${req.get("host")}/api/admin/approve-speaker?token=${signApproveToken(user.id)}`;
       await sendSpeakingRequestEmail(admin, toPublicUser(user), parsed.data.note, approveUrl).catch((err) =>
         console.error("[mail] speaking request email failed", err),
       );
     } else if (!admin) {
-      console.warn(`[speaking] @${user.username} requested speaking access, but ADMIN_EMAIL/SMTP_USER isn't set to notify anyone.`);
+      console.warn(`[speaking] @${user.username} requested speaking access, but ADMIN_EMAIL/SMTP_USER isn't set to notify anyone (set ADMIN_EMAIL).`);
     }
   }
   res.json({ user: toPublicUser((await users.byId(user.id))!) });
