@@ -51,7 +51,7 @@ export const ARABIC_DIALECTS = [
   "ar-TN",
 ] as const;
 export type ArabicDialect = (typeof ARABIC_DIALECTS)[number];
-export const DEFAULT_DIALECT: ArabicDialect = "ar-SA";
+export const DEFAULT_DIALECT: ArabicDialect = "ar-EG";
 
 export type TranslationMode = "live" | "balanced" | "sentences";
 export const TRANSLATION_MODES: TranslationMode[] = ["live", "balanced", "sentences"];
