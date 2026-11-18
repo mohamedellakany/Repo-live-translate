@@ -164,6 +164,17 @@ npm run build:apk
 - Install it by opening the file on the phone, or over USB: `~/Library/Android/sdk/platform-tools/adb install -r ~/Downloads/Apps/lisancast.apk`.
 - It's signed with a test key, so Google sign-in doesn't work in it. Use email and password.
 
+### Build the Google Play app bundle
+
+```bash
+cd mobile
+npm run build:aab
+```
+
+- Saves `~/Downloads/Apps/lisancast-<version>-<versionCode>.aab`, signed with the upload key in `~/.lisancast/` (never in the repo). Back up that folder: Play only accepts updates signed with this key.
+- The version code is the git commit count, so it grows with every release (`VERSION_CODE=...` to override). Bump `version` in `mobile/app.config.ts` for user-visible versions (e.g. 1.0.1).
+- Android package: `com.lisancast.app` (permanent on Google Play).
+
 ### Build and install the iPhone app
 
 Builds on this Mac with Xcode and installs on a connected (or same Wi-Fi, paired) iPhone:

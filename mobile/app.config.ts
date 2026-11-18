@@ -29,7 +29,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
   },
   android: {
-    package: "com.livetranslate.app",
+    // Permanent once published on Google Play.
+    package: "com.lisancast.app",
+    // Must increase with every Google Play upload; scripts/build-aab.sh sets it (default: the git commit count).
+    versionCode: Number(process.env.ANDROID_VERSION_CODE ?? 1),
     adaptiveIcon: {
       backgroundColor: BG,
       foregroundImage: "./assets/android-icon-foreground.png",
