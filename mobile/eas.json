@@ -18,7 +18,7 @@
         "EXPO_PUBLIC_WEB_URL": "https://app.lisancast.com",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "839986352773-1eno5n5ni15mt4vd68fb92mo2gg70qn7.apps.googleusercontent.com",
         "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "839986352773-lrqb529eil58jkh0i9ig0a001pucbgf2.apps.googleusercontent.com",
-        "EXPO_PUBLIC_SUPPORT_EMAIL": "mohamed.ellaqany@gmail.com"
+        "EXPO_PUBLIC_SUPPORT_EMAIL": "support@lisancast.com"
       },
       "android": {
         "buildType": "apk"
