@@ -39,6 +39,8 @@ const PREFS_KEY = "lt.listenerPrefs";
 const FONT_SCALES = [0.85, 1, 1.2, 1.45, 1.75];
 interface Prefs {
   showOriginal: boolean;
+  /** True once the listener has used the Show/Hide original button; until then only the translation shows. */
+  originalChosen?: boolean;
   fontIndex: number;
   readAloud: boolean;
   lang: string;
@@ -61,7 +63,7 @@ export default function Listen() {
   const [speaker, setSpeaker] = useState<{ username: string; displayName: string } | null>(null);
   const [status, setStatus] = useState<Status>({ live: false, reconnecting: false, sessionId: null, title: null, private: false });
   const [listeners, setListeners] = useState(0);
-  const [prefs, setPrefs] = useState<Prefs>({ showOriginal: true, fontIndex: 1, readAloud: false, lang: DEFAULT_TARGET });
+  const [prefs, setPrefs] = useState<Prefs>({ showOriginal: false, fontIndex: 1, readAloud: false, lang: DEFAULT_TARGET });
   const [prefsLoaded, setPrefsLoaded] = useState(false);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
@@ -90,6 +92,8 @@ export default function Listen() {
       setPrefs((cur) => ({
         ...cur,
         ...p,
+        // Older versions saved "show original" with every setting; only honor it if the listener chose it.
+        showOriginal: p.originalChosen ? !!p.showOriginal : false,
         readAloud: false,
         lang: p.lang && TARGET_LANGUAGES.includes(p.lang) ? p.lang : DEFAULT_TARGET,
       }));
@@ -438,7 +442,7 @@ export default function Listen() {
           title={prefs.showOriginal ? t("listen.hideOriginal") : t("listen.showOriginal")}
           variant="ghost"
           icon={prefs.showOriginal ? "eye-off-outline" : "eye-outline"}
-          onPress={() => updatePrefs({ showOriginal: !prefs.showOriginal })}
+          onPress={() => updatePrefs({ showOriginal: !prefs.showOriginal, originalChosen: true })}
         />
         <IconButton icon={copied ? "checkmark" : "copy-outline"} label={t("listen.copyTranscript")} onPress={copyTranscript} />
       </View>
