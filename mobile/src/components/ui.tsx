@@ -379,12 +379,16 @@ export function Sheet({ visible, onClose, title, children }: { visible: boolean;
   const sheetStyles = useSheetStyles();
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <Pressable style={sheetStyles.backdrop} onPress={onClose} accessibilityLabel="Close">
-        <Pressable style={sheetStyles.sheet} onPress={(e) => e.stopPropagation()}>
-          {title && <Text style={sheetStyles.title}>{title}</Text>}
-          {children}
+      {/* Pop-ups don't get the screen's keyboard handling: lift the sheet above the keyboard. Android needs this
+          too, because with edge-to-edge the system no longer resizes the window for the keyboard. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "web" ? undefined : "padding"}>
+        <Pressable style={sheetStyles.backdrop} onPress={onClose} accessibilityLabel="Close">
+          <Pressable style={sheetStyles.sheet} onPress={(e) => e.stopPropagation()}>
+            {title && <Text style={sheetStyles.title}>{title}</Text>}
+            {children}
+          </Pressable>
         </Pressable>
-      </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
