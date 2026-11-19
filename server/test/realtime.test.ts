@@ -7,6 +7,8 @@ import { io as connect, type Socket } from "socket.io-client";
 process.env.NODE_ENV = "test";
 process.env.TRANSLATION_PROVIDER = "mock";
 process.env.ADMIN_EMAIL = "owner@x.com";
+// Only some listening languages switched on (the tests also use French); Urdu is switched off.
+process.env.LISTEN_LANGUAGES = "en,fr";
 // A throwaway PostgreSQL database, wiped before every run. Never point this at real data.
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://localhost:54329/lisancast_test";
 {
@@ -376,4 +378,26 @@ test("speaking access: request form, owner email, one-click approval", async () 
   const s = open(token);
   assert.equal((await emitAck(s, "speaker:start", { sourceLang: "ar" })).ok, true);
   await emitAck(s, "speaker:stop", {});
+});
+
+test("switched-off listening languages fall back to English", async () => {
+  const langs = (await call("GET", "/api/languages")).body;
+  assert.deepEqual(langs.target.map((l: { code: string }) => l.code), ["en", "fr"]);
+
+  // Set up directly: the email-code endpoints' rate limit is shared with the other tests.
+  const reg = await post("/api/auth/register", { username: "langspeaker", email: "lang@x.com", displayName: "L", password: "password123" });
+  const { users } = await import("../src/db.js");
+  await users.setEmailVerified(reg.body.user.id);
+  await allowSpeaking(reg.body.user.id);
+  const token = reg.body.token as string;
+  const speaker = open(token);
+  assert.equal((await emitAck(speaker, "speaker:start", { sourceLang: "ar" })).ok, true);
+  // An older app still offering Urdu: the listener is served English instead of an error.
+  const listener = open();
+  const joined = await emitAck(listener, "listener:join", { username: "langspeaker", lang: "ur" });
+  assert.equal(joined.ok, true);
+  assert.equal(joined.lang, "en");
+  const french = await emitAck(open(), "listener:join", { username: "langspeaker", lang: "fr" });
+  assert.equal(french.lang, "fr");
+  await emitAck(speaker, "speaker:stop", {});
 });

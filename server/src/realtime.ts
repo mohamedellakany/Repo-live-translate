@@ -3,7 +3,7 @@ import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 import { userFromToken } from "./auth.js";
 import { library, sessions, users, type TranslationMode, type UserRow } from "./db.js";
-import { DEFAULT_SOURCE, DEFAULT_TARGET, isSourceLanguage, isTargetLanguage, TARGET_LANGUAGES } from "./languages.js";
+import { DEFAULT_SOURCE, DEFAULT_TARGET, isSourceLanguage, isTargetLanguage, listenLanguage, TARGET_LANGUAGES } from "./languages.js";
 import { summarizeEndedSession } from "./summary.js";
 import { settledPhraseEnd, toWords } from "./phrases.js";
 import { MAX_TTS_TEXT, streamSpeech, ttsEnabled } from "./tts.js";
@@ -636,7 +636,9 @@ function registerListenerHandlers(socket: Socket) {
     const speakerInfo = { username: speaker.username, displayName: speaker.display_name };
 
     leaveCurrent();
-    const { lang, pin, audio } = parsed.data;
+    const { pin, audio } = parsed.data;
+    // A switched-off language (e.g. from an older app version) falls back to the default one.
+    const lang = listenLanguage(parsed.data.lang);
     const room = getOrCreateRoom(speaker);
 
     // Private session: require the PIN (unless this socket already entered it for this session).
@@ -668,7 +670,7 @@ function registerListenerHandlers(socket: Socket) {
     if (room.sessionId && missing.length) void backfillHistory(socket, room, room.sessionId, missing, lang);
 
     broadcastStats(room);
-    ack({ ok: true, speaker: speakerInfo, status: statusPayload(room), listeners: listenerCount(room), history });
+    ack({ ok: true, speaker: speakerInfo, status: statusPayload(room), listeners: listenerCount(room), history, lang });
   }
 
   socket.on("listener:audio", (raw) => {

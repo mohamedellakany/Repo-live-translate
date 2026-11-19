@@ -6,6 +6,7 @@ import { useAuth } from "@/auth/AuthProvider";
 import { Button, Card, Chip, IconButton, Screen, TextField } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { useSwitchLanguage } from "@/i18n/LanguageTransition";
+import { useServerConfig } from "@/lib/serverConfig";
 import { InstallAppPrompt } from "@/components/InstallAppPrompt";
 import { api } from "@/lib/api";
 import { normalizeUsername } from "@/lib/format";
@@ -18,6 +19,15 @@ export default function Home() {
   const { user, refresh } = useAuth();
   const { t, lang } = useI18n();
   const switchLang = useSwitchLanguage();
+  // "Read in 18 languages", or "Read in English" while only English is switched on.
+  const { languages } = useServerConfig();
+  const listenCount = languages?.target.length ?? 18;
+  const languagesChip =
+    listenCount === 1 && languages?.target[0]?.code === "en"
+      ? t("home.chipEnglish")
+      : t(lang === "ar" ? (listenCount === 2 ? "home.chipPairTwo" : listenCount <= 10 ? "home.chipPairFew" : "home.chipPair") : "home.chipPair", {
+          count: listenCount,
+        });
   const [speakerId, setSpeakerId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -81,7 +91,7 @@ export default function Home() {
         <Text style={styles.title}>{t("home.title")}</Text>
         <Text style={styles.subtitle}>{t("home.subtitle")}</Text>
         <View style={{ flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }}>
-          <Chip icon="mic-outline" text={t("home.chipPair")} />
+          <Chip icon="mic-outline" text={languagesChip} />
           <Chip icon="flash-outline" text={t("home.chipLive")} />
         </View>
       </View>

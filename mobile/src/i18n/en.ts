@@ -30,7 +30,10 @@ export const en = {
   "home.title": "Hear every word, in your language.",
   "home.subtitle":
     "Live translation for talks, lectures and meetings. Just scan and follow along, no app needed.",
-  "home.chipPair": "Read in 18 languages",
+  "home.chipPair": "Read in {count} languages",
+  "home.chipPairTwo": "Read in {count} languages",
+  "home.chipPairFew": "Read in {count} languages",
+  "home.chipEnglish": "Read in English",
   "home.chipLive": "Real-time",
   "home.followTitle": "Follow a speaker",
   "home.followText": "Enter the speaker's ID to read their live translation. No account needed.",

@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../auth.js";
 import { library, sessions, type LibraryRow } from "../db.js";
-import { DEFAULT_TARGET, isTargetLanguage } from "../languages.js";
+import { DEFAULT_TARGET, listenLanguage } from "../languages.js";
 import { ttsToken } from "../tts.js";
 
 /** A listener's library: finished sessions they attended, if the speaker allows revisiting. */
@@ -44,7 +44,7 @@ libraryRouter.post("/", async (req, res) => {
   const started = s ? Date.parse(s.started_at) : 0;
   if (!s || Date.now() - started > CLAIM_WINDOW_MS) return res.status(404).json({ error: "Session not found" });
   if (s.speaker_id !== req.user!.id) {
-    await library.add(s.id, req.user!.id, isTargetLanguage(parsed.data.lang) ? parsed.data.lang : DEFAULT_TARGET);
+    await library.add(s.id, req.user!.id, listenLanguage(parsed.data.lang));
   }
   res.status(204).end();
 });

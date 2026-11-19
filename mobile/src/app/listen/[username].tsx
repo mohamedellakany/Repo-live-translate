@@ -109,7 +109,9 @@ export default function Listen() {
 
   // Read-aloud: the server streams a natural AI voice right after each sentence's translation.
   // Servers without it fall back to the device voice (male when available, or the listener's pick).
-  const { features } = useServerConfig();
+  const { features, languages } = useServerConfig();
+  // Listening languages switched on by the server (the rest stay in the app, just not offered).
+  const listenLangs = languages ? TARGET_LANGUAGES.filter((c) => languages.target.some((l) => l.code === c)) : TARGET_LANGUAGES;
   const voice = useVoice(target.code);
   const reader = useRef<Reader | null>(null);
   reader.current ??= new Reader();
@@ -167,6 +169,9 @@ export default function Listen() {
           return false;
         }
         pinRef.current = pin;
+        // The server serves the default language if the chosen one is switched off; show what's really sent.
+        // Not saved, so the listener's own choice comes back if that language is switched on again.
+        if (res.lang && res.lang !== lang) setPrefs((p) => ({ ...p, lang: res.lang }));
         setStatus(res.status);
         setListeners(res.listeners);
         sessionRef.current = res.status.sessionId;
@@ -453,7 +458,7 @@ export default function Listen() {
         onClose={() => setLangPicker(false)}
         title={t("listen.language")}
         selected={prefs.lang}
-        options={TARGET_LANGUAGES.map((c) => ({ value: c, label: LANGUAGES[c].nativeName, description: LANGUAGES[c].name }))}
+        options={listenLangs.map((c) => ({ value: c, label: LANGUAGES[c].nativeName, description: LANGUAGES[c].name }))}
         onSelect={changeLanguage}
       />
     </Screen>

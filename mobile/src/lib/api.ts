@@ -81,6 +81,8 @@ export interface TranscriptSegment {
 export interface ServerConfig {
   appName: string;
   features: { googleSignIn: boolean; email: boolean; summaries: boolean; tts?: boolean };
+  /** Languages the server offers; `target` is the listening languages that are currently switched on. */
+  languages?: { target: { code: string }[]; defaultTarget: string };
 }
 export type AuthResult = { token: string; user: User };
 export type GoogleResult =

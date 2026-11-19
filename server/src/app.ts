@@ -4,7 +4,7 @@ import helmet from "helmet";
 import { config, features } from "./config.js";
 import { localizeErrors } from "./i18n.js";
 import { Sentry } from "./instrument.js";
-import { DEFAULT_TARGET, LANGUAGES, SOURCE_LANGUAGES, TARGET_LANGUAGES } from "./languages.js";
+import { DEFAULT_TARGET, LANGUAGES, LISTEN_LANGUAGES, SOURCE_LANGUAGES } from "./languages.js";
 import { adminRouter } from "./routes/admin.js";
 import { authRouter } from "./routes/auth.js";
 import { libraryRouter } from "./routes/library.js";
@@ -24,7 +24,7 @@ export function createApp() {
   app.get("/health", (_req, res) => res.json({ status: "ok", provider: translator.providerName }));
   const languages = () => ({
     source: SOURCE_LANGUAGES.map((c) => LANGUAGES[c]),
-    target: TARGET_LANGUAGES.map((c) => LANGUAGES[c]),
+    target: LISTEN_LANGUAGES.map((c) => LANGUAGES[c]),
     defaultTarget: DEFAULT_TARGET,
   });
   app.get("/api/languages", (_req, res) => res.json(languages()));

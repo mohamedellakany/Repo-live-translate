@@ -1,3 +1,5 @@
+import { config } from "./config.js";
+
 /**
  * Supported languages. Mirror of mobile/src/constants/languages.ts.
  * `code` is ISO 639-1 and is what translation providers receive.
@@ -40,3 +42,18 @@ export const DEFAULT_TARGET = "en";
 
 export const isSourceLanguage = (code: string) => SOURCE_LANGUAGES.includes(code);
 export const isTargetLanguage = (code: string) => TARGET_LANGUAGES.includes(code);
+
+/**
+ * Listening languages currently offered (LISTEN_LANGUAGES), always including the default. The others stay
+ * supported in code, just switched off; listeners who ask for one get the default instead.
+ */
+export const LISTEN_LANGUAGES: string[] = (() => {
+  const wanted = (config.LISTEN_LANGUAGES ?? "").split(",").map((c) => c.trim().toLowerCase()).filter(Boolean);
+  const unknown = wanted.filter((c) => !TARGET_LANGUAGES.includes(c));
+  if (unknown.length) console.warn(`[languages] LISTEN_LANGUAGES has unknown codes, ignored: ${unknown.join(", ")}`);
+  const chosen = TARGET_LANGUAGES.filter((c) => wanted.includes(c));
+  if (!chosen.length) return TARGET_LANGUAGES;
+  return chosen.includes(DEFAULT_TARGET) ? chosen : [DEFAULT_TARGET, ...chosen];
+})();
+/** A listening language that is switched on, or the default one. */
+export const listenLanguage = (code: string) => (LISTEN_LANGUAGES.includes(code) ? code : DEFAULT_TARGET);

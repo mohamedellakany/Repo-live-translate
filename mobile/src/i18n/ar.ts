@@ -29,7 +29,10 @@ export const ar: Record<TKey, string> = {
   "home.title": "افهم كل كلمة، بلغتك.",
   "home.subtitle":
     "ترجمة مباشرة للخطب والمحاضرات والاجتماعات. امسح الرمز وتابع، دون الحاجة إلى تطبيق.",
-  "home.chipPair": "اقرأ بـ 18 لغة",
+  "home.chipPair": "اقرأ بـ {count} لغة",
+  "home.chipPairTwo": "اقرأ بلغتين",
+  "home.chipPairFew": "اقرأ بـ {count} لغات",
+  "home.chipEnglish": "اقرأ بالإنجليزية",
   "home.chipLive": "فوري",
   "home.followTitle": "تابع متحدثاً",
   "home.followText": "أدخل معرّف المتحدث لقراءة ترجمته المباشرة. لا تحتاج إلى حساب.",
