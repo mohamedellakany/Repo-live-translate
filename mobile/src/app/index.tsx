@@ -6,6 +6,7 @@ import { useAuth } from "@/auth/AuthProvider";
 import { Button, Card, Chip, IconButton, Screen, TextField } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { useSwitchLanguage } from "@/i18n/LanguageTransition";
+import { InstallAppPrompt } from "@/components/InstallAppPrompt";
 import { api } from "@/lib/api";
 import { normalizeUsername } from "@/lib/format";
 import { recentSpeakers, type RecentSpeaker } from "@/lib/recentSpeakers";
@@ -84,6 +85,8 @@ export default function Home() {
           <Chip icon="flash-outline" text={t("home.chipLive")} />
         </View>
       </View>
+
+      <InstallAppPrompt />
 
       <Card>
         <View style={styles.cardHead}>
