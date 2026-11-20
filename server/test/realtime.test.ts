@@ -9,6 +9,8 @@ process.env.TRANSLATION_PROVIDER = "mock";
 process.env.ADMIN_EMAIL = "owner@x.com";
 // Only some listening languages switched on (the tests also use French); Urdu is switched off.
 process.env.LISTEN_LANGUAGES = "en,fr";
+// Most tests exercise "Live" (word-by-word) translation, so it is switched on here; see the test that switches it off.
+process.env.LIVE_MODE_ENABLED = "true";
 // A throwaway PostgreSQL database, wiped before every run. Never point this at real data.
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://localhost:54329/lisancast_test";
 {
@@ -400,4 +402,24 @@ test("switched-off listening languages fall back to English", async () => {
   const french = await emitAck(open(), "listener:join", { username: "langspeaker", lang: "fr" });
   assert.equal(french.lang, "fr");
   await emitAck(speaker, "speaker:stop", {});
+});
+
+test("with Live mode switched off, speakers asking for it get Balanced", async () => {
+  const { features } = await import("../src/config.js");
+  const { sessions } = await import("../src/db.js");
+  features.liveMode = false;
+  try {
+    const reg = await post("/api/auth/register", { username: "nolive", email: "nolive@x.com", displayName: "N", password: "password123" });
+    const { users } = await import("../src/db.js");
+    await users.setEmailVerified(reg.body.user.id);
+    await allowSpeaking(reg.body.user.id);
+    const s = open(reg.body.token);
+    const started = await emitAck(s, "speaker:start", { sourceLang: "ar", translationMode: "live" });
+    assert.equal(started.ok, true);
+    assert.equal((await sessions.byId(started.sessionId))!.translation_mode, "balanced");
+    await emitAck(s, "speaker:stop", {});
+    assert.equal((await call("GET", "/api/config")).body.features.liveMode, false);
+  } finally {
+    features.liveMode = true;
+  }
 });

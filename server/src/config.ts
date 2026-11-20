@@ -33,6 +33,12 @@ const schema = z.object({
   // Listening languages offered to listeners, comma-separated (e.g. "en" or "en,ar,ur"). Blank = all of them.
   // Each extra language a listener picks is translated separately, so this is the main lever on translation usage.
   LISTEN_LANGUAGES: optional,
+  // "Live" translation mode (re-translates while each sentence is spoken; the most characters). Off unless "true":
+  // speakers who ask for it get "Balanced" instead.
+  LIVE_MODE_ENABLED: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() === "true"),
   // Monthly character allowance of the main translation provider (Azure F0 = 2,000,000). The server
   // warns in its log at 80% and 100%. 0 turns the warnings off; usage is still counted.
   TRANSLATION_MONTHLY_LIMIT: z.coerce.number().int().nonnegative().default(2_000_000),
@@ -119,6 +125,8 @@ export const features = {
   summaries: summaryProvider !== null,
   /** Natural read-aloud voice (see tts.ts). */
   tts: !!config.GEMINI_API_KEY && config.TTS_ENABLED,
+  /** Whether speakers may use the "Live" translation mode (see LIVE_MODE_ENABLED). */
+  liveMode: config.LIVE_MODE_ENABLED,
 };
 
 if (

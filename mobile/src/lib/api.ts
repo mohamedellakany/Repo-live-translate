@@ -80,7 +80,8 @@ export interface TranscriptSegment {
 }
 export interface ServerConfig {
   appName: string;
-  features: { googleSignIn: boolean; email: boolean; summaries: boolean; tts?: boolean };
+  /** `liveMode: false` means the server has switched the "Live" translation mode off. */
+  features: { googleSignIn: boolean; email: boolean; summaries: boolean; tts?: boolean; liveMode?: boolean };
   /** Languages the server offers; `target` is the listening languages that are currently switched on. */
   languages?: { target: { code: string }[]; defaultTarget: string };
 }

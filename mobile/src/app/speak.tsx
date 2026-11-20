@@ -31,6 +31,7 @@ import {
 } from "@/constants/languages";
 import { isExpoGo } from "@/hooks/useSpeechCapture";
 import { useI18n } from "@/i18n";
+import { useServerConfig } from "@/lib/serverConfig";
 import { formatDuration } from "@/lib/format";
 import { storage } from "@/lib/storage";
 import { makeStyles, radius, spacing, useTheme } from "@/theme";
@@ -90,6 +91,11 @@ export default function Speak() {
   const pinError = isPrivate && pin && !PIN_RE.test(pin) ? t("speak.pinInvalid") : null;
   const canStart = connected && capture.supported && (!isPrivate || PIN_RE.test(pin));
 
+  // The server can switch "Live" off (it then uses Balanced); hide it and show what will really be used.
+  const { features } = useServerConfig();
+  const modes = features.liveMode === false ? TRANSLATION_MODES.filter((m) => m !== "live") : TRANSLATION_MODES;
+  const effectiveMode: TranslationMode = modes.includes(mode) ? mode : "balanced";
+
   const goLive = async () => {
     const result = await broadcast.goLive({
       sourceLang: source.code,
@@ -97,7 +103,7 @@ export default function Speak() {
       locale: source.code === "ar" ? dialect : source.ttsLocale,
       title: title.trim() || null,
       pin: isPrivate ? pin : null,
-      mode,
+      mode: effectiveMode,
       allowRevisit,
     });
     if (result === "unverified") router.replace({ pathname: "/verify-email", params: { next: "/speak" } });
@@ -196,8 +202,8 @@ export default function Speak() {
           <SelectRow
             icon="speedometer-outline"
             label={t("speak.mode")}
-            hint={t(`mode.${mode}Desc`)}
-            value={t(`mode.${mode}`)}
+            hint={t(`mode.${effectiveMode}Desc`)}
+            value={t(`mode.${effectiveMode}`)}
             onPress={() => setPicker("mode")}
           />
           <SwitchRow
@@ -275,8 +281,8 @@ export default function Speak() {
           visible={picker === "mode"}
           onClose={() => setPicker(null)}
           title={t("speak.mode")}
-          selected={mode}
-          options={TRANSLATION_MODES.map((m) => ({ value: m, label: t(`mode.${m}`), description: t(`mode.${m}Desc`) }))}
+          selected={effectiveMode}
+          options={modes.map((m) => ({ value: m, label: t(`mode.${m}`), description: t(`mode.${m}Desc`) }))}
           onSelect={(m) => {
             setMode(m);
             setModeChosen(true);

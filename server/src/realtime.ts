@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 import { userFromToken } from "./auth.js";
+import { features } from "./config.js";
 import { library, sessions, users, type TranslationMode, type UserRow } from "./db.js";
 import { DEFAULT_SOURCE, DEFAULT_TARGET, isSourceLanguage, isTargetLanguage, listenLanguage, TARGET_LANGUAGES } from "./languages.js";
 import { summarizeEndedSession } from "./summary.js";
@@ -465,7 +466,9 @@ function registerSpeakerHandlers(socket: Socket) {
 
     const parsed = startSchema.safeParse(raw ?? {});
     if (!parsed.success || !isSourceLanguage(parsed.data.sourceLang)) return ack({ ok: false, error: "invalid_request" });
-    const { sourceLang, title, pin, translationMode, allowRevisit, resumeSessionId } = parsed.data;
+    const { sourceLang, title, pin, allowRevisit, resumeSessionId } = parsed.data;
+    // "Live" may be switched off (LIVE_MODE_ENABLED): older apps still offer it, so it becomes "Balanced".
+    const translationMode = parsed.data.translationMode === "live" && !features.liveMode ? "balanced" : parsed.data.translationMode;
     const room = getOrCreateRoom(user);
     room.displayName = user.display_name;
 
