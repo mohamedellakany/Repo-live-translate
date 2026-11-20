@@ -38,7 +38,10 @@ import { makeStyles, radius, spacing, useTheme } from "@/theme";
 const PREFS_KEY = "lt.speakerPrefs";
 const PIN_RE = /^\d{4,8}$/;
 
-type SpeakerPrefs = { sourceLang?: string; dialect?: ArabicDialect; mode?: TranslationMode };
+/** `modeChosen`: the speaker picked the mode themselves (older versions saved "live" with every setting). */
+type SpeakerPrefs = { sourceLang?: string; dialect?: ArabicDialect; mode?: TranslationMode; modeChosen?: boolean };
+/** "Balanced" by default: still feels live (updates about once a second) with roughly 3-4x fewer characters. */
+const DEFAULT_MODE: TranslationMode = "balanced";
 
 export default function Speak() {
   const { colors } = useTheme();
@@ -52,7 +55,8 @@ export default function Speak() {
   const source = LANGUAGES[sourceLang] ?? LANGUAGES[DEFAULT_SOURCE];
   const [title, setTitle] = useState("");
   const [dialect, setDialect] = useState<ArabicDialect>(DEFAULT_DIALECT);
-  const [mode, setMode] = useState<TranslationMode>("live");
+  const [mode, setMode] = useState<TranslationMode>(DEFAULT_MODE);
+  const [modeChosen, setModeChosen] = useState(false);
   const [isPrivate, setIsPrivate] = useState(false);
   const [allowRevisit, setAllowRevisit] = useState(true);
   const [pin, setPin] = useState("");
@@ -68,10 +72,13 @@ export default function Speak() {
     storage.getJSON<SpeakerPrefs>(PREFS_KEY, {}).then((p) => {
       if (p.sourceLang && SOURCE_LANGUAGES.includes(p.sourceLang)) setSourceLang(p.sourceLang);
       if (p.dialect && ARABIC_DIALECTS.includes(p.dialect)) setDialect(p.dialect);
-      if (p.mode && TRANSLATION_MODES.includes(p.mode)) setMode(p.mode);
+      if (p.modeChosen && p.mode && TRANSLATION_MODES.includes(p.mode)) {
+        setMode(p.mode);
+        setModeChosen(true);
+      }
     });
   }, []);
-  const savePrefs = (patch: SpeakerPrefs) => storage.setJSON(PREFS_KEY, { sourceLang, dialect, mode, ...patch });
+  const savePrefs = (patch: SpeakerPrefs) => storage.setJSON(PREFS_KEY, { sourceLang, dialect, mode, modeChosen, ...patch });
 
   // While live, the spoken language is the broadcast's; before that, the one being picked.
   const isLive = phase === "live" || phase === "stopping";
@@ -272,7 +279,8 @@ export default function Speak() {
           options={TRANSLATION_MODES.map((m) => ({ value: m, label: t(`mode.${m}`), description: t(`mode.${m}Desc`) }))}
           onSelect={(m) => {
             setMode(m);
-            savePrefs({ mode: m });
+            setModeChosen(true);
+            savePrefs({ mode: m, modeChosen: true });
           }}
         />
       </Screen>
