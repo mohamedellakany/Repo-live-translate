@@ -57,11 +57,23 @@ export type UsageListener = (provider: string, chars: number) => void;
 export class Translator {
   private cache = new LruCache<string>(5_000);
   onUsage?: UsageListener;
+  /**
+   * Set by the server from this month's usage (see usage.ts): `preferFallback` = the main provider has reached its
+   * switch point; `fallbackHasRoom` = the fallback is still under its own monthly limit.
+   */
+  preferFallback: () => boolean = () => false;
+  fallbackHasRoom: () => boolean = () => true;
+  private announcedFallback = false;
   /** `provider` translates finished sentences; `preview` translates sentences still being spoken. */
   private readonly preview: TranslationProvider;
   constructor(
     private readonly provider: TranslationProvider = createProvider(config.TRANSLATION_PROVIDER),
     preview?: TranslationProvider,
+    /** Takes over when the main provider is near its monthly allowance or refuses a request. */
+    readonly fallback: TranslationProvider | null = config.TRANSLATION_FALLBACK_PROVIDER &&
+    config.TRANSLATION_FALLBACK_PROVIDER !== config.TRANSLATION_PROVIDER
+      ? createProvider(config.TRANSLATION_FALLBACK_PROVIDER)
+      : null,
   ) {
     this.preview =
       preview ??
@@ -72,7 +84,8 @@ export class Translator {
 
   /** e.g. "deepl", or "deepl (previews: azure)" when previews use a different provider. */
   get providerName() {
-    return this.preview === this.provider ? this.provider.name : `${this.provider.name} (previews: ${this.preview.name})`;
+    const base = this.preview === this.provider ? this.provider.name : `${this.provider.name} (previews: ${this.preview.name})`;
+    return this.fallback ? `${base}, then ${this.fallback.name}` : base;
   }
 
   /** `meter.chars` is incremented by the characters actually sent to the provider (cache hits are free). */
@@ -80,7 +93,13 @@ export class Translator {
     const text = req.text.trim();
     if (!text || req.from === req.to) return text;
 
-    const provider = req.kind === "partial" ? this.preview : this.provider;
+    const main = req.kind === "partial" ? this.preview : this.provider;
+    const fallback = this.fallback && this.fallbackHasRoom() ? this.fallback : null;
+    const provider = fallback && this.preferFallback() ? fallback : main;
+    if (provider === fallback && !this.announcedFallback) {
+      this.announcedFallback = true;
+      console.warn(`[translation] ${main.name} reached its monthly switch point; translating with ${fallback.name} now.`);
+    }
     // Keyed by provider, so a finished sentence never reuses a cheaper preview translation of the same text.
     const key = `${provider.name}|${req.from}|${req.to}|${text}`;
     const cached = this.cache.get(key);
@@ -88,9 +107,22 @@ export class Translator {
 
     const timeout = AbortSignal.timeout(TIMEOUT_MS[req.kind]);
     const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
-    const result = await provider.translate({ ...req, text, signal });
+    let used = provider;
+    let result: string;
+    try {
+      result = await provider.translate({ ...req, text, signal });
+    } catch (err) {
+      // One provider refused (quota used up, key problem, rate limit): try the other one for this sentence.
+      // Main → fallback, or, after switching, fallback → main (it usually still has a little room before 2M).
+      const status = (err as { status?: number }).status;
+      const other = provider === main ? fallback : main;
+      if (!fallback || !other || !status || ![401, 403, 429].includes(status)) throw err;
+      console.warn(`[translation] ${provider.name} refused (${describeTranslationError(err)}); using ${other.name}.`);
+      used = other;
+      result = await other.translate({ ...req, text, signal: AbortSignal.timeout(TIMEOUT_MS[req.kind]) });
+    }
     if (req.meter) req.meter.chars += text.length;
-    this.onUsage?.(provider.name, text.length);
+    this.onUsage?.(used.name, text.length);
     this.cache.set(key, result);
     return result;
   }

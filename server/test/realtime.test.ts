@@ -341,6 +341,11 @@ test("translation usage is added up per month and provider", async () => {
   const deepl = rows.find((r) => r.month === month && r.provider === "deepl");
   assert.deepEqual(azure, { month, provider: "azure", chars: 200, calls: 3 });
   assert.deepEqual(deepl, { month, provider: "deepl", chars: 7, calls: 1 });
+
+  // The running monthly total that decides when to switch providers.
+  const { monthChars } = await import("../src/translation/usage.js");
+  assert.equal(monthChars("azure"), 200);
+  assert.equal(monthChars("google"), 0);
 });
 
 test("speaking access: request form, owner email, one-click approval", async () => {

@@ -42,6 +42,17 @@ const schema = z.object({
   // Monthly character allowance of the main translation provider (Azure F0 = 2,000,000). The server
   // warns in its log at 80% and 100%. 0 turns the warnings off; usage is still counted.
   TRANSLATION_MONTHLY_LIMIT: z.coerce.number().int().nonnegative().default(2_000_000),
+  // Optional second provider (e.g. "google": 500,000 free characters a month). It takes over when the main
+  // provider has sent TRANSLATION_SWITCH_AT characters this month, or right away if the main one refuses a
+  // request (quota or key problem). Blank = no fallback.
+  TRANSLATION_FALLBACK_PROVIDER: z.preprocess(
+    (v) => (typeof v === "string" && !v.trim() ? undefined : v),
+    z.enum(["free", "google", "deepl", "azure", "claude", "mock"]).optional(),
+  ),
+  TRANSLATION_SWITCH_AT: z.coerce.number().int().nonnegative().default(1_900_000),
+  // Stop using the fallback once it has sent this many characters this month (0 = no limit). With Google's
+  // free 500,000, e.g. 490000 keeps it free; after that the main provider is used again.
+  TRANSLATION_FALLBACK_LIMIT: z.coerce.number().int().nonnegative().default(0),
   ANTHROPIC_API_KEY: optional,
   CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
 

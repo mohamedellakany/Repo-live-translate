@@ -5,7 +5,7 @@ import { createApp } from "./app.js";
 import { config, features, summaryProvider } from "./config.js";
 import { attachRealtime } from "./realtime.js";
 import { translator } from "./translation/index.js";
-import { flushUsage, recordUsage } from "./translation/usage.js";
+import { flushUsage, loadMonthTotals, monthChars, recordUsage } from "./translation/usage.js";
 
 const httpServer = createServer(createApp());
 const io = new Server(httpServer, {
@@ -17,6 +17,15 @@ const io = new Server(httpServer, {
 });
 attachRealtime(io);
 translator.onUsage = recordUsage;
+// Switch to the fallback provider (if any) when the main one nears its monthly allowance, while the fallback
+// itself is still under its own limit (e.g. Google's free 500,000).
+translator.preferFallback = () =>
+  config.TRANSLATION_SWITCH_AT > 0 && monthChars(config.TRANSLATION_PROVIDER) >= config.TRANSLATION_SWITCH_AT;
+translator.fallbackHasRoom = () =>
+  !translator.fallback ||
+  !config.TRANSLATION_FALLBACK_LIMIT ||
+  monthChars(translator.fallback.name) < config.TRANSLATION_FALLBACK_LIMIT;
+loadMonthTotals().catch((err) => console.error("[usage] couldn't read this month's totals:", err.message));
 
 httpServer.listen(config.PORT, () => {
   console.log(`LisanCast server listening on http://localhost:${config.PORT}`);

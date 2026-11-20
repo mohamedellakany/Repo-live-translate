@@ -7,10 +7,11 @@ export class GoogleCloudProvider implements TranslationProvider {
 
   async translate({ text, from, to, signal }: TranslateRequest): Promise<string> {
     const res = await fetch(
-      `https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(this.apiKey)}`,
+      "https://translation.googleapis.com/language/translate/v2",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        // The key goes in a header rather than the URL, so it never ends up in request logs.
+        headers: { "Content-Type": "application/json", "X-Goog-Api-Key": this.apiKey },
         body: JSON.stringify({ q: text, source: from, target: to === "zh" ? "zh-CN" : to, format: "text" }),
         signal,
       },

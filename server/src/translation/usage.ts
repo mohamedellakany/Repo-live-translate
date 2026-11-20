@@ -13,6 +13,8 @@ const WARN_AT = [0.8, 1];
 export const usageMonth = (d = new Date()) => d.toISOString().slice(0, 7);
 
 const pending = new Map<string, { chars: number; calls: number }>();
+/** This server's view of each provider's total for a month (saved + not yet saved), keyed "YYYY-MM|provider". */
+const totals = new Map<string, number>();
 const warned = new Set<string>();
 let timer: NodeJS.Timeout | undefined;
 
@@ -24,7 +26,9 @@ function add(key: string, chars: number, calls: number) {
 }
 
 export function recordUsage(provider: string, chars: number) {
-  add(`${usageMonth()}|${provider}`, chars, 1);
+  const key = `${usageMonth()}|${provider}`;
+  add(key, chars, 1);
+  totals.set(key, (totals.get(key) ?? 0) + chars);
   timer ??= setTimeout(() => {
     timer = undefined;
     void flushUsage();
@@ -69,6 +73,23 @@ function warnIfNearLimit(month: string, provider: string, chars: number) {
           `(${Math.round((chars / limit) * 100)}%) used on ${provider} in ${month}.`,
       );
     }
+  }
+}
+
+/** Characters sent to `provider` so far this month (call loadMonthTotals() at startup). */
+export const monthChars = (provider: string) => totals.get(`${usageMonth()}|${provider}`) ?? 0;
+
+/** Read this month's saved totals, so a restart doesn't forget how much has already been used. */
+export async function loadMonthTotals() {
+  const month = usageMonth();
+  const { rows } = await pool.query<{ provider: string; chars: number }>(
+    "SELECT provider, chars FROM translation_usage WHERE month = $1",
+    [month],
+  );
+  for (const r of rows) {
+    const key = `${month}|${r.provider}`;
+    // Add to anything recorded since startup (not saved yet, so not part of the saved figure).
+    totals.set(key, (totals.get(key) ?? 0) + r.chars);
   }
 }
 
