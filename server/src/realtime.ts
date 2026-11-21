@@ -32,7 +32,12 @@ import { describeTranslationError, translator } from "./translation/index.js";
  *                     speaker:replaced                  (sent to an old speaker device)
  * ========================================================================== */
 
-const SPEAKER_RECONNECT_GRACE_MS = 20_000;
+/**
+ * How long a disconnected speaker's session stays open, so they can carry on in the same session. Long enough for
+ * a phone call (the phone takes the microphone and the browser often drops the connection meanwhile); listeners
+ * see "reconnecting" until the speaker is back.
+ */
+const SPEAKER_RECONNECT_GRACE_MS = 10 * 60_000;
 const HISTORY_ON_JOIN = 100;
 const BACKFILL_ON_JOIN = 30;
 const CONTEXT_SENTENCES = 3;
@@ -715,12 +720,14 @@ export function attachRealtime(server: Server) {
       if (!room || room.speakerSocketId !== socket.id) return;
       room.speakerSocketId = null;
       if (room.sessionId) {
-        // Keep the session alive briefly so a network blip doesn't end the broadcast.
+        // Keep the session alive so a network blip or a phone call doesn't end the broadcast.
         broadcastStatus(room);
         room.reconnectTimer = setTimeout(() => {
           void endSession(room);
           maybeDisposeRoom(room);
         }, SPEAKER_RECONNECT_GRACE_MS);
+        // Don't keep the process alive just for this timer (e.g. during shutdown or tests).
+        room.reconnectTimer.unref?.();
       } else {
         maybeDisposeRoom(room);
       }

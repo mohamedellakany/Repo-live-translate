@@ -330,6 +330,19 @@ export const sessions = {
       sessionId,
       seq,
     ]),
+  /** The speaker's own correction of one line: its original text and/or its translation into `lang`. */
+  editSegment: async (sessionId: string, seq: number, lang: string, edit: { original?: string; translation?: string }) => {
+    const row = await one<SegmentDbRow>(
+      `UPDATE segments SET
+         original = COALESCE($3, original),
+         translations = CASE WHEN $5::text IS NULL THEN translations
+                             ELSE jsonb_set(translations, ARRAY[$4::text], to_jsonb($5::text)) END
+       WHERE session_id = $1 AND seq = $2
+       RETURNING *`,
+      [sessionId, seq, edit.original ?? null, lang, edit.translation ?? null],
+    );
+    return row ? rowToSegment(row) : null;
+  },
   segments: async (sessionId: string) =>
     (await all<SegmentDbRow>("SELECT * FROM segments WHERE session_id = $1 ORDER BY seq ASC", [sessionId])).map(rowToSegment),
   recentSegments: async (sessionId: string, limit: number) =>

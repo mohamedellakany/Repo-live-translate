@@ -192,6 +192,7 @@ export const ar: Record<TKey, string> = {
   "speech.languageNotSupported": "هذه اللهجة غير مدعومة على هذا الجهاز. اختر \"الفصحى / السعودية\" وحاول مرة أخرى.",
   "speech.audioCapture": "لم يتم العثور على ميكروفون أو أنه مستخدم من تطبيق آخر.",
   "speech.network": "فقد التعرّف على الكلام اتصاله بالشبكة. جارٍ إعادة المحاولة…",
+  "speech.interrupted": "الميكروفون مستخدم حالياً (مثلاً أثناء مكالمة). ما زلت في البث، وسيُستأنف الاستماع تلقائياً عند توفره.",
   "speech.generic": "خطأ في التعرّف على الكلام",
   "speech.expoGo":
     "يتطلب التحدث النسخة الكاملة من التطبيق، فتطبيق Expo Go لا يتضمن التعرّف على الكلام. للتجربة الآن: تحدّث من متصفح الكمبيوتر واستمع على هذا الهاتف.",
@@ -229,6 +230,12 @@ export const ar: Record<TKey, string> = {
 
   "history.header": "الجلسات السابقة",
   "history.emptyTitle": "لا توجد جلسات بعد",
+  "history.editHint": "هل لاحظت خطأً؟ اضغط ✎ على أي سطر لتصحيحه. سيرى المستمعون الذين يعيدون فتح الجلسة تصحيحك.",
+  "history.editLine": "تعديل هذا السطر",
+  "history.editTranslation": "الترجمة ({lang})",
+  "history.editOriginal": "ما قيل",
+  "history.editOriginalHint": "صحّح الكلمات التي أخطأ فيها التعرّف على الكلام.",
+  "history.editedSinceSummary": "لقد عدّلت النص. اضغط \"إعادة الإنشاء\" في الملخص لتضمين تصحيحاتك.",
   "history.emptyText": "تُحفظ نصوص جلساتك هنا بعد كل بث.",
   "history.lines": "{count} سطر",
   "history.listeners": "{count} مستمع",

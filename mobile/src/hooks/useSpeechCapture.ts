@@ -59,6 +59,8 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
     localeRef.current = locale;
   }, [locale]);
   const listening = useRef(false);
+  /** The microphone has worked during this broadcast, so later permission/microphone errors are interruptions. */
+  const everListened = useRef(false);
 
   const startRecognizer = useCallback(() => {
     Speech?.start({
@@ -96,6 +98,7 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
     switch (name) {
       case "start":
         listening.current = true;
+        everListened.current = true;
         setStatus("listening");
         setError(null);
         retryDelay.current = 150;
@@ -114,8 +117,13 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
       case "error": {
         const e = event as ExpoSpeechRecognitionNativeEventMap["error"];
         if (IGNORABLE_ERRORS.has(e.error)) return;
-        const fatal = e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "language-not-supported";
-        setError(ERROR_KEYS[e.error] ?? "speech.generic");
+        // A phone call or another app taking the microphone shows up as "not-allowed" / "audio-capture" in browsers.
+        // Once the microphone has worked, treat those as interruptions: keep trying until it's free again.
+        const interrupted =
+          everListened.current && (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "audio-capture");
+        const fatal =
+          !interrupted && (e.error === "not-allowed" || e.error === "service-not-allowed" || e.error === "language-not-supported");
+        setError(interrupted ? "speech.interrupted" : (ERROR_KEYS[e.error] ?? "speech.generic"));
         if (fatal) {
           wantRunning.current = false;
           setStatus("error");
@@ -148,8 +156,15 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
       retryDelay.current = 150;
       scheduleRestart();
     };
+    // Coming back from a phone call or another app can fire any of these, depending on the browser.
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+    };
   }, [scheduleRestart]);
 
   useEffect(() => {
@@ -176,6 +191,7 @@ export function useSpeechCapture({ locale, onPartial, onFinal }: Options) {
       return false;
     }
     wantRunning.current = true;
+    everListened.current = false;
     retryDelay.current = 150;
     startRecognizer();
     return true;

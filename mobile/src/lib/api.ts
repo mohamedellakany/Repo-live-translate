@@ -158,6 +158,9 @@ export const api = {
   session: (id: string) =>
     request<{ session: SessionInfo & { summary: Summary | null }; segments: TranscriptSegment[] }>("GET", `/api/sessions/${enc(id)}`),
   summarize: (id: string, lang: string) => request<{ summary: Summary }>("POST", `/api/sessions/${enc(id)}/summary`, { lang }),
+  /** Correct one line of a finished session (its original wording and/or its translation). */
+  editSegment: (id: string, seq: number, edit: { original?: string; translation?: string; lang?: string }) =>
+    request<{ segment: TranscriptSegment }>("PATCH", `/api/sessions/${enc(id)}/segments/${seq}`, edit),
   updateSession: (id: string, patch: { allowRevisit: boolean }) =>
     request<{ session: SessionInfo }>("PATCH", `/api/sessions/${enc(id)}`, patch),
   deleteSession: (id: string) => request<void>("DELETE", `/api/sessions/${enc(id)}`),

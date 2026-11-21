@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { requireAuth } from "../auth.js";
@@ -72,6 +73,27 @@ sessionsRouter.patch("/:id", async (req, res) => {
     return res.status(404).json({ error: "Session not found" });
   }
   res.json({ session: serialize((await sessions.byId(req.params.id))!) });
+});
+
+/** Correct one line of a finished session's transcript (the original wording and/or its translation). */
+sessionsRouter.patch("/:id/segments/:seq", async (req, res) => {
+  const parsed = z
+    .object({
+      original: z.string().trim().min(1, "The text can't be empty").max(4000).optional(),
+      translation: z.string().trim().min(1, "The text can't be empty").max(8000).optional(),
+      lang: z.string().optional(),
+    })
+    .refine((b) => b.original !== undefined || b.translation !== undefined, "Nothing to change")
+    .safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+  const seq = Number(req.params.seq);
+  const s = await sessions.byId(String(req.params.id));
+  if (!s || s.speaker_id !== req.user!.id || !Number.isInteger(seq)) return res.status(404).json({ error: "Session not found" });
+  if (liveSessionId(req.user!.id) === s.id) return res.status(409).json({ error: "Stop the live session before editing it" });
+  const lang = parsed.data.lang && isTargetLanguage(parsed.data.lang) ? parsed.data.lang : DEFAULT_TARGET;
+  const segment = await sessions.editSegment(s.id, seq, lang, parsed.data);
+  if (!segment) return res.status(404).json({ error: "Line not found" });
+  res.json({ segment });
 });
 
 sessionsRouter.delete("/:id", async (req, res) => {

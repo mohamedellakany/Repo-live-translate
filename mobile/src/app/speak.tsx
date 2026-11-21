@@ -318,7 +318,7 @@ export default function Speak() {
         </ScrollView>
       )}
       {notice && <Banner tone="warning" text={notice} />}
-      {captureError && <Banner tone="error" text={t(captureError)} />}
+      {captureError && <Banner tone={captureError === "speech.interrupted" ? "warning" : "error"} text={t(captureError)} />}
       {!connected && <Banner tone="warning" icon="cloud-offline-outline" text={t("speak.connectionLost")} />}
       <Text style={styles.hint}>{t("speak.keepGoingHint")}</Text>
 

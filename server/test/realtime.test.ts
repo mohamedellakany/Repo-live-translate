@@ -428,3 +428,36 @@ test("with Live mode switched off, speakers asking for it get Balanced", async (
     features.liveMode = true;
   }
 });
+
+test("the speaker can correct a line of a finished transcript; nobody else can", async () => {
+  const reg = await post("/api/auth/register", { username: "editor", email: "editor@x.com", displayName: "E", password: "password123" });
+  const { users } = await import("../src/db.js");
+  await users.setEmailVerified(reg.body.user.id);
+  await allowSpeaking(reg.body.user.id);
+  const token = reg.body.token as string;
+  const s = open(token);
+  const started = await emitAck(s, "speaker:start", { sourceLang: "ar", translationMode: "sentences" });
+  const listener = open();
+  await emitAck(listener, "listener:join", { username: "editor", lang: "en" });
+  const caption = next(listener, "caption:translation", (d) => d.isFinal);
+  s.emit("speaker:final", { seq: 1, text: "مرحبا بكم" });
+  await caption;
+  const path = `/api/sessions/${started.sessionId}/segments/1`;
+  // Not while live.
+  assert.equal((await call("PATCH", path, { translation: "Welcome, everyone" }, token)).status, 409);
+  await emitAck(s, "speaker:stop", {});
+  await sleep(200);
+
+  const edited = await call("PATCH", path, { translation: "Welcome, everyone", original: "مرحباً بكم جميعاً" }, token);
+  assert.equal(edited.status, 200);
+  assert.equal(edited.body.segment.translations.en, "Welcome, everyone");
+  assert.equal(edited.body.segment.original, "مرحباً بكم جميعاً");
+  const reread = await call("GET", `/api/sessions/${started.sessionId}`, undefined, token);
+  assert.equal(reread.body.segments[0].translations.en, "Welcome, everyone");
+
+  assert.equal((await call("PATCH", path, {}, token)).status, 400); // nothing to change
+  assert.equal((await call("PATCH", path, { translation: "   " }, token)).status, 400); // empty
+  assert.equal((await call("PATCH", `/api/sessions/${started.sessionId}/segments/99`, { translation: "x" }, token)).status, 404);
+  const other = await post("/api/auth/register", { username: "intruder", email: "intruder@x.com", displayName: "I", password: "password123" });
+  assert.equal((await call("PATCH", path, { translation: "hacked" }, other.body.token)).status, 404);
+});

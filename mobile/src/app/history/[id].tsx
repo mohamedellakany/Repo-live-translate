@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Platform, ScrollView, Share, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { SummaryCard, summaryText } from "@/components/SummaryCard";
-import { AppHeader, Banner, Button, Card, IconButton, Screen, SwitchRow } from "@/components/ui";
+import { AppHeader, Banner, Button, Card, IconButton, Screen, Sheet, SwitchRow, TextField } from "@/components/ui";
 import { DEFAULT_TARGET, LANGUAGES } from "@/constants/languages";
 import { useI18n } from "@/i18n";
 import { api, type TranscriptSegment } from "@/lib/api";
@@ -23,6 +23,12 @@ export default function SessionTranscript() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [summarizing, setSummarizing] = useState(false);
+  // Correcting a line: which one, and the draft texts.
+  const [editing, setEditing] = useState<TranscriptSegment | null>(null);
+  const [draft, setDraft] = useState({ translation: "", original: "" });
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editedSinceSummary, setEditedSinceSummary] = useState(false);
 
   // After a reload the saved login is restored asynchronously; fetching before then fails with "Authentication required".
   useEffect(() => {
@@ -73,10 +79,39 @@ export default function SessionTranscript() {
       // Summaries are written in the default reading language (English).
       const res = await api.summarize(String(id), DEFAULT_TARGET);
       setData((d) => (d ? { ...d, session: { ...d.session, summary: res.summary } } : d));
+      setEditedSinceSummary(false);
     } catch (e) {
       setError((e as Error).message);
     } finally {
       setSummarizing(false);
+    }
+  };
+
+  const openEdit = (s: TranscriptSegment) => {
+    setEditing(s);
+    setDraft({ translation: s.translations[DEFAULT_TARGET] ?? "", original: s.original });
+    setEditError(null);
+  };
+  const saveEdit = async () => {
+    if (!editing) return;
+    const translation = draft.translation.trim();
+    const original = draft.original.trim();
+    const changes = {
+      ...(translation !== (editing.translations[DEFAULT_TARGET] ?? "") ? { translation } : {}),
+      ...(original !== editing.original ? { original } : {}),
+    };
+    if (!Object.keys(changes).length) return setEditing(null);
+    setSaving(true);
+    setEditError(null);
+    try {
+      const { segment } = await api.editSegment(String(id), editing.seq, { ...changes, lang: DEFAULT_TARGET });
+      setData((d) => (d ? { ...d, segments: d.segments.map((s) => (s.seq === segment.seq ? segment : s)) } : d));
+      if (summary) setEditedSinceSummary(true);
+      setEditing(null);
+    } catch (e) {
+      setEditError((e as Error).message);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -140,6 +175,9 @@ export default function SessionTranscript() {
             )}
           </View>
 
+          {editedSinceSummary && summary && features.summaries && (
+            <Banner tone="info" icon="sparkles-outline" text={t("history.editedSinceSummary")} />
+          )}
           {summary ? (
             <SummaryCard summary={summary}>
               {features.summaries && (
@@ -166,11 +204,17 @@ export default function SessionTranscript() {
           </Card>
 
           {data.segments.length === 0 && <Text style={styles.meta}>{t("history.nothingSaid")}</Text>}
+          {data.segments.length > 0 && data.session.endedAt && <Text style={styles.meta}>{t("history.editHint")}</Text>}
           {data.segments.map((s) => (
             <View key={s.seq} style={styles.segment}>
-              <Text style={[styles.translation, styles.ltr]} selectable>
-                {s.translations[DEFAULT_TARGET] ?? "—"}
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "flex-start", gap: spacing.sm }}>
+                <Text style={[styles.translation, styles.ltr, { flex: 1 }]} selectable>
+                  {s.translations[DEFAULT_TARGET] ?? "—"}
+                </Text>
+                {data.session.endedAt && (
+                  <IconButton icon="create-outline" label={t("history.editLine")} onPress={() => openEdit(s)} />
+                )}
+              </View>
               {s.original !== s.translations[DEFAULT_TARGET] && (
                 <Text style={[styles.original, sourceRtl ? styles.rtl : styles.ltr]} selectable>
                   {s.original}
@@ -181,6 +225,39 @@ export default function SessionTranscript() {
           <Button title={t("history.deleteSession")} icon="trash-outline" variant="danger" onPress={remove} style={{ marginTop: spacing.lg }} />
         </ScrollView>
       )}
+
+      <Sheet visible={!!editing} onClose={() => setEditing(null)} title={t("history.editLine")}>
+        {editError && <Banner tone="error" text={editError} />}
+        <TextField
+          label={t("history.editTranslation", { lang: LANGUAGES[DEFAULT_TARGET]?.nativeName ?? DEFAULT_TARGET })}
+          value={draft.translation}
+          onChangeText={(translation) => setDraft((d) => ({ ...d, translation }))}
+          multiline
+          textAlignVertical="top"
+          style={[{ minHeight: 90 }, styles.ltr]}
+          autoFocus
+        />
+        <TextField
+          label={t("history.editOriginal")}
+          hint={t("history.editOriginalHint")}
+          value={draft.original}
+          onChangeText={(original) => setDraft((d) => ({ ...d, original }))}
+          multiline
+          textAlignVertical="top"
+          style={[{ minHeight: 70 }, sourceRtl ? styles.rtl : styles.ltr]}
+        />
+        <View style={{ flexDirection: "row", gap: spacing.sm }}>
+          <Button title={t("common.cancel")} variant="secondary" onPress={() => setEditing(null)} style={{ flex: 1 }} />
+          <Button
+            title={t("common.save")}
+            icon="checkmark"
+            onPress={saveEdit}
+            loading={saving}
+            disabled={!draft.translation.trim() || !draft.original.trim()}
+            style={{ flex: 1 }}
+          />
+        </View>
+      </Sheet>
     </Screen>
   );
 }

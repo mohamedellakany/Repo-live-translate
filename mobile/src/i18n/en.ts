@@ -202,6 +202,7 @@ export const en = {
   "speech.audioCapture": "No microphone was found or it's being used by another app.",
   "speech.network": "Speech recognition lost its network connection. Retrying…",
   "speech.generic": "Speech recognition error",
+  "speech.interrupted": "The microphone is in use (for example by a call). You're still live; listening resumes automatically when it's free.",
   "speech.expoGo":
     "Speaking needs the full app build. Expo Go doesn't include speech recognition. To test now, speak from your computer's browser and listen on this phone.",
   "speech.browser": "This browser doesn't support speech recognition. Please use Google Chrome, Microsoft Edge or Safari.",
@@ -241,6 +242,12 @@ export const en = {
   // history
   "history.header": "Past sessions",
   "history.emptyTitle": "No sessions yet",
+  "history.editHint": "Spotted a mistake? Tap ✎ on any line to correct it. Listeners who reopen this session see your correction.",
+  "history.editLine": "Edit this line",
+  "history.editTranslation": "Translation ({lang})",
+  "history.editOriginal": "What was said",
+  "history.editOriginalHint": "Fix words the speech recognition got wrong.",
+  "history.editedSinceSummary": "You've edited the transcript. Tap \"Regenerate\" on the summary to include your corrections.",
   "history.emptyText": "Your transcripts are saved here after each broadcast.",
   "history.lines": "{count} lines",
   "history.listeners": "{count} listeners",
