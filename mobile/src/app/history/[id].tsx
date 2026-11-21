@@ -27,6 +27,7 @@ export default function SessionTranscript() {
   const [editing, setEditing] = useState<TranscriptSegment | null>(null);
   const [draft, setDraft] = useState({ translation: "", original: "" });
   const [saving, setSaving] = useState(false);
+  const [retranslating, setRetranslating] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editedSinceSummary, setEditedSinceSummary] = useState(false);
 
@@ -92,6 +93,22 @@ export default function SessionTranscript() {
     setDraft({ translation: s.translations[DEFAULT_TARGET] ?? "", original: s.original });
     setEditError(null);
   };
+  /** Fill the translation box with a fresh translation of the (corrected) original; the speaker reviews, then saves. */
+  const translateAgain = async () => {
+    const text = draft.original.trim();
+    if (!text) return;
+    setRetranslating(true);
+    setEditError(null);
+    try {
+      const { translation } = await api.retranslate(String(id), text, DEFAULT_TARGET);
+      setDraft((d) => ({ ...d, translation }));
+    } catch (e) {
+      setEditError((e as Error).message);
+    } finally {
+      setRetranslating(false);
+    }
+  };
+
   const saveEdit = async () => {
     if (!editing) return;
     const translation = draft.translation.trim();
@@ -245,6 +262,14 @@ export default function SessionTranscript() {
           multiline
           textAlignVertical="top"
           style={[{ minHeight: 70 }, sourceRtl ? styles.rtl : styles.ltr]}
+        />
+        <Button
+          title={t("history.translateAgain")}
+          icon="language-outline"
+          variant="secondary"
+          onPress={translateAgain}
+          loading={retranslating}
+          disabled={!draft.original.trim() || saving}
         />
         <View style={{ flexDirection: "row", gap: spacing.sm }}>
           <Button title={t("common.cancel")} variant="secondary" onPress={() => setEditing(null)} style={{ flex: 1 }} />

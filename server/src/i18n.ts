@@ -39,6 +39,7 @@ const AR: Record<string, string> = {
   "The text can't be empty": "لا يمكن أن يكون النص فارغاً",
   "Nothing to change": "لا يوجد ما يمكن تغييره",
   "Line not found": "السطر غير موجود",
+  "Translation unavailable. Please try again": "الترجمة غير متاحة. حاول مرة أخرى",
   "Too many attempts. Please try again later.": "محاولات كثيرة. حاول مرة أخرى لاحقاً.",
   "Not found": "غير موجود",
   "Tell us a little more (at least 10 characters)": "أخبرنا بالمزيد قليلاً (10 أحرف على الأقل)",

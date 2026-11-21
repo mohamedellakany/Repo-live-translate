@@ -7,6 +7,7 @@ import { sessions, type SessionRow } from "../db.js";
 import { DEFAULT_TARGET, isTargetLanguage } from "../languages.js";
 import { liveSessionId } from "../realtime.js";
 import { isSummaryPending, summarizeSession } from "../summary.js";
+import { describeTranslationError, translator } from "../translation/index.js";
 
 export const sessionsRouter = Router();
 sessionsRouter.use(requireAuth);
@@ -73,6 +74,29 @@ sessionsRouter.patch("/:id", async (req, res) => {
     return res.status(404).json({ error: "Session not found" });
   }
   res.json({ session: serialize((await sessions.byId(req.params.id))!) });
+});
+
+const retranslateLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Too many attempts. Please try again later." } });
+
+/**
+ * "Translate again" while correcting a line: translate the speaker's corrected wording so they can review it before
+ * saving. Nothing is saved here. Only for the session's own speaker, one line at a time.
+ */
+sessionsRouter.post("/:id/retranslate", retranslateLimiter, async (req, res) => {
+  const parsed = z
+    .object({ text: z.string().trim().min(1, "The text can't be empty").max(4000), lang: z.string().optional() })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+  const s = await sessions.byId(String(req.params.id));
+  if (!s || s.speaker_id !== req.user!.id) return res.status(404).json({ error: "Session not found" });
+  const lang = parsed.data.lang && isTargetLanguage(parsed.data.lang) ? parsed.data.lang : DEFAULT_TARGET;
+  try {
+    const translation = await translator.translate({ kind: "final", text: parsed.data.text, from: s.source_lang, to: lang });
+    res.json({ translation });
+  } catch (err) {
+    console.error("[retranslate]", describeTranslationError(err));
+    res.status(502).json({ error: "Translation unavailable. Please try again" });
+  }
 });
 
 /** Correct one line of a finished session's transcript (the original wording and/or its translation). */

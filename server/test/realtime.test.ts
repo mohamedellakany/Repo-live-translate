@@ -460,4 +460,14 @@ test("the speaker can correct a line of a finished transcript; nobody else can",
   assert.equal((await call("PATCH", `/api/sessions/${started.sessionId}/segments/99`, { translation: "x" }, token)).status, 404);
   const other = await post("/api/auth/register", { username: "intruder", email: "intruder@x.com", displayName: "I", password: "password123" });
   assert.equal((await call("PATCH", path, { translation: "hacked" }, other.body.token)).status, 404);
+
+  // "Translate again": a fresh translation of the corrected wording, for review (nothing is saved).
+  const again = await post(`/api/sessions/${started.sessionId}/retranslate`, { text: "مرحباً بكم جميعاً" }, token);
+  assert.equal(again.status, 200);
+  assert.equal(typeof again.body.translation, "string");
+  assert.ok(again.body.translation.length > 0);
+  assert.equal((await post(`/api/sessions/${started.sessionId}/retranslate`, { text: " " }, token)).status, 400);
+  assert.equal((await post(`/api/sessions/${started.sessionId}/retranslate`, { text: "x" }, other.body.token)).status, 404);
+  const unchanged = await call("GET", `/api/sessions/${started.sessionId}`, undefined, token);
+  assert.equal(unchanged.body.segments[0].translations.en, "Welcome, everyone");
 });
