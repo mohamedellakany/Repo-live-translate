@@ -13,6 +13,8 @@ export class AzureProvider implements TranslationProvider {
     private readonly region: string,
     /** "azure" for the main key; a second key (e.g. pay-as-you-go) gets its own name so its usage is counted apart. */
     readonly name = "azure",
+    /** Ask Azure to mask profanity with asterisks (its built-in filter keeps religious words like "Hell"). */
+    private readonly maskProfanity = true,
     private readonly endpoint = "https://api.cognitive.microsofttranslator.com",
   ) {}
 
@@ -21,6 +23,10 @@ export class AzureProvider implements TranslationProvider {
     url.searchParams.set("api-version", "3.0");
     url.searchParams.set("from", CODE_MAP[from] ?? from);
     url.searchParams.set("to", CODE_MAP[to] ?? to);
+    if (this.maskProfanity) {
+      url.searchParams.set("profanityAction", "Marked");
+      url.searchParams.set("profanityMarker", "Asterisk");
+    }
     const res = await fetch(url, {
       method: "POST",
       headers: {

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { GoogleGenAI } from "@google/genai";
 import { config, features } from "./config.js";
+import { forSpeech } from "./profanity.js";
 
 /**
  * Natural-sounding read-aloud audio (Gemini TTS). The language is detected from the text.
@@ -104,7 +105,10 @@ const cacheKey = (text: string, lang: string) => `${config.TTS_MODEL}|${config.T
  * Stream speech for `text` as it's generated: `onChunk` gets raw PCM pieces (TTS_SAMPLE_RATE, 16-bit mono).
  * Resolves when the sentence is complete. Cached and shared, so repeated sentences cost one request.
  */
-export async function streamSpeech(text: string, lang: string, onChunk: (pcm: Buffer) => void): Promise<void> {
+export async function streamSpeech(rawText: string, lang: string, onChunk: (pcm: Buffer) => void): Promise<void> {
+  // Masked offensive words ("***") are left out rather than read aloud as symbols.
+  const text = forSpeech(rawText);
+  if (!text) return;
   const key = cacheKey(text, lang);
   const cached = cache.get(key);
   if (cached) {

@@ -100,3 +100,13 @@ test("after switching, if the fallback refuses, the main provider is tried again
   assert.equal(await t.translate({ kind: "final", text: "مرحبا", from: "ar", to: "en" }), "azure:مرحبا");
   assert.equal(azure.calls, 1);
 });
+
+test("translations are filtered for offensive words before anyone sees them", async () => {
+  const rude = { name: "google", async translate() { return "What a shit day, by Hell's fire"; } };
+  const t = new Translator(rude);
+  t.filterProfanity = true;
+  assert.equal(await t.translate({ kind: "final", text: "يوم سيء", from: "ar", to: "en" }), "What a *** day, by Hell's fire");
+  const off = new Translator(rude);
+  off.filterProfanity = false;
+  assert.equal(await off.translate({ kind: "final", text: "يوم سيء آخر", from: "ar", to: "en" }), "What a shit day, by Hell's fire");
+});

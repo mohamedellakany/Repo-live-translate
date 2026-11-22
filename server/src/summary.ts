@@ -6,6 +6,7 @@ import { config, summaryProvider } from "./config.js";
 import { sessions, type Segment } from "./db.js";
 import { DEFAULT_TARGET, LANGUAGES } from "./languages.js";
 import { BadOutputError, withFallbacks, type Attempt } from "./retry.js";
+import { maskProfanity } from "./profanity.js";
 
 export const SummarySchema = z.object({
   title: z.string().describe("A short, specific title for the session (max ~8 words)"),
@@ -37,7 +38,15 @@ export async function summarizeTranscript(segments: Segment[], sourceLang: strin
   const prompt = `Summarize this session. The speaker spoke ${src}; each line shows the original followed by its machine translation.\nWrite the summary in ${out}.\n\n<transcript>\n${transcript}\n</transcript>`;
 
   const content = summaryProvider === "gemini" ? await withGemini(prompt) : await withClaude(prompt);
-  return { ...content, language: outputLang, createdAt: new Date().toISOString() };
+  const clean = (t: string) => (config.PROFANITY_FILTER === "mask" ? maskProfanity(t, outputLang) : t);
+  const filtered: SummaryContent = {
+    title: clean(content.title),
+    overview: clean(content.overview),
+    key_points: content.key_points.map(clean),
+    decisions: content.decisions.map(clean),
+    action_items: content.action_items.map((a) => ({ task: clean(a.task), owner: a.owner })),
+  };
+  return { ...filtered, language: outputLang, createdAt: new Date().toISOString() };
 }
 
 // ---- Stored sessions (on request and automatically when a session ends) ----

@@ -7,6 +7,7 @@ import { GoogleCloudProvider } from "./providers/google.js";
 import { MockProvider } from "./providers/mock.js";
 import type { TranslateRequest, TranslationProvider } from "./types.js";
 import { PAID_PROVIDER } from "./caps.js";
+import { maskProfanity } from "../profanity.js";
 
 type ProviderName = typeof config.TRANSLATION_PROVIDER;
 
@@ -20,7 +21,7 @@ function createProvider(name: ProviderName): TranslationProvider {
       return new DeepLProvider(config.DEEPL_API_KEY, config.DEEPL_API_URL);
     case "azure":
       if (!config.AZURE_TRANSLATOR_KEY) throw new Error("AZURE_TRANSLATOR_KEY is required");
-      return new AzureProvider(config.AZURE_TRANSLATOR_KEY, config.AZURE_TRANSLATOR_REGION);
+      return new AzureProvider(config.AZURE_TRANSLATOR_KEY, config.AZURE_TRANSLATOR_REGION, "azure", config.PROFANITY_FILTER === "mask");
     case "claude":
       return new ClaudeProvider(config.ANTHROPIC_API_KEY, config.CLAUDE_MODEL);
     case "mock":
@@ -61,7 +62,7 @@ function defaultFallbacks(): TranslationProvider[] {
   const fb = config.TRANSLATION_FALLBACK_PROVIDER;
   if (fb && fb !== config.TRANSLATION_PROVIDER) list.push(createProvider(fb));
   if (config.AZURE_TRANSLATOR_PAID_KEY) {
-    list.push(new AzureProvider(config.AZURE_TRANSLATOR_PAID_KEY, config.AZURE_TRANSLATOR_PAID_REGION, PAID_PROVIDER));
+    list.push(new AzureProvider(config.AZURE_TRANSLATOR_PAID_KEY, config.AZURE_TRANSLATOR_PAID_REGION, PAID_PROVIDER, config.PROFANITY_FILTER === "mask"));
   }
   return list;
 }
@@ -76,6 +77,8 @@ export class Translator {
    * Providers are tried in order (main, then fallbacks); the first one with room translates.
    */
   hasRoom: (provider: string) => boolean = () => true;
+  /** Mask offensive words in translations (PROFANITY_FILTER). */
+  filterProfanity = config.PROFANITY_FILTER === "mask";
   private lastUsed: string | null = null;
   /** `provider` translates finished sentences; `preview` translates sentences still being spoken. */
   private readonly preview: TranslationProvider;
@@ -129,7 +132,9 @@ export class Translator {
     let lastError: unknown;
     for (const [i, p] of order.entries()) {
       try {
-        const result = await p.translate({ ...req, text, signal: i === 0 ? signal : AbortSignal.timeout(TIMEOUT_MS[req.kind]) });
+        const raw = await p.translate({ ...req, text, signal: i === 0 ? signal : AbortSignal.timeout(TIMEOUT_MS[req.kind]) });
+        // A mistranslated offensive word is masked before anyone sees it (second layer after Azure's own filter).
+        const result = this.filterProfanity ? maskProfanity(raw, req.to) : raw;
         if (req.meter) req.meter.chars += text.length;
         this.onUsage?.(p.name, text.length);
         this.cache.set(key, result);
