@@ -55,47 +55,48 @@ const refusing = (name: string, status: number) => ({
   },
 });
 
-test("switches to the fallback provider at the monthly switch point", async () => {
+test("each provider is used until its monthly limit, in order: main, fallback, paid", async () => {
   const azure = fake("azure");
   const google = fake("google");
-  const t = new Translator(azure, undefined, google);
-  assert.equal(t.providerName, "azure, then google");
-  let azureUsed = 1_899_990;
-  t.preferFallback = () => azureUsed >= 1_900_000;
-  t.onUsage = (provider, chars) => {
-    if (provider === "azure") azureUsed += chars;
-  };
-  assert.equal(await t.translate({ kind: "final", text: "مرحبا بكم", from: "ar", to: "en" }), "azure:مرحبا بكم");
-  assert.equal(await t.translate({ kind: "final", text: "صباح الخير", from: "ar", to: "en" }), "azure:صباح الخير"); // now at the switch point
-  assert.equal(await t.translate({ kind: "final", text: "شكرا لكم", from: "ar", to: "en" }), "google:شكرا لكم");
-  assert.deepEqual([azure.calls, google.calls], [2, 1]);
+  const paid = fake("azure-paid");
+  const t = new Translator(azure, undefined, [google, paid]);
+  assert.equal(t.providerName, "azure, then google, then azure-paid");
+  const full = new Set<string>();
+  t.hasRoom = (name) => !full.has(name);
+  assert.equal(await t.translate({ kind: "final", text: "واحد", from: "ar", to: "en" }), "azure:واحد");
+  full.add("azure");
+  assert.equal(await t.translate({ kind: "final", text: "اثنان", from: "ar", to: "en" }), "google:اثنان");
+  full.add("google");
+  assert.equal(await t.translate({ kind: "final", text: "ثلاثة", from: "ar", to: "en" }), "azure-paid:ثلاثة");
+  full.add("azure-paid");
+  // Everything at its limit: back to the main provider (it may still accept, or refuse).
+  assert.equal(await t.translate({ kind: "final", text: "أربعة", from: "ar", to: "en" }), "azure:أربعة");
+  assert.deepEqual([azure.calls, google.calls, paid.calls], [2, 1, 1]);
 });
 
-test("a refused request (quota or key) is retried on the fallback; other errors are not", async () => {
-  const google = fake("google");
+test("a refused request (quota or key) moves on to the next provider; other errors don't", async () => {
   const seen: string[] = [];
-  const t = new Translator(refusing("azure", 403), undefined, google);
+  const t = new Translator(refusing("azure", 403), undefined, [refusing("google", 429), fake("azure-paid")]);
   t.onUsage = (provider) => seen.push(provider);
-  assert.equal(await t.translate({ kind: "final", text: "مرحبا", from: "ar", to: "en" }), "google:مرحبا");
-  assert.deepEqual(seen, ["google"]);
+  assert.equal(await t.translate({ kind: "final", text: "مرحبا", from: "ar", to: "en" }), "azure-paid:مرحبا");
+  assert.deepEqual(seen, ["azure-paid"]);
 
-  const broken = new Translator(refusing("azure", 500), undefined, fake("google"));
+  const broken = new Translator(refusing("azure", 500), undefined, [fake("google")]);
   await assert.rejects(broken.translate({ kind: "final", text: "مرحبا", from: "ar", to: "en" }), /HTTP 500/);
 });
 
-test("once the fallback reaches its own limit, it isn't used (no surprise bills)", async () => {
-  const google = fake("google");
-  const t = new Translator(refusing("azure", 403), undefined, google);
-  t.preferFallback = () => true;
-  t.fallbackHasRoom = () => false;
+test("a provider at its limit is skipped, even as a backup (no surprise bills)", async () => {
+  const paid = fake("azure-paid");
+  const t = new Translator(refusing("azure", 403), undefined, [paid]);
+  t.hasRoom = (name) => name !== "azure-paid";
   await assert.rejects(t.translate({ kind: "final", text: "مرحبا", from: "ar", to: "en" }), /quota exceeded/);
-  assert.equal(google.calls, 0);
+  assert.equal(paid.calls, 0);
 });
 
 test("after switching, if the fallback refuses, the main provider is tried again", async () => {
   const azure = fake("azure");
-  const t = new Translator(azure, undefined, refusing("google", 403));
-  t.preferFallback = () => true;
+  const t = new Translator(azure, undefined, [refusing("google", 403)]);
+  t.hasRoom = (name) => name !== "azure"; // main at its switch point
   assert.equal(await t.translate({ kind: "final", text: "مرحبا", from: "ar", to: "en" }), "azure:مرحبا");
   assert.equal(azure.calls, 1);
 });

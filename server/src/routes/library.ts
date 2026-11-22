@@ -22,7 +22,9 @@ const serialize = (r: LibraryRow) => ({
   lang: r.lang,
   speaker: { username: r.username, displayName: r.display_name },
   segmentCount: Number(r.segment_count),
-  hasSummary: !!r.summary,
+  hasSummary: !!r.summary && r.review_status === "published",
+  /** "reviewing": the speaker is still checking the transcript; readers see it once it's published. */
+  reviewStatus: r.review_status,
 });
 
 libraryRouter.get("/", async (req, res) => {
@@ -52,6 +54,8 @@ libraryRouter.post("/", async (req, res) => {
 libraryRouter.get("/:id", async (req, res) => {
   const entry = await library.entry(req.user!.id, req.params.id);
   if (!entry) return res.status(404).json({ error: "Session not found" });
+  // Still being reviewed by the speaker: no transcript or summary yet.
+  if (entry.review_status !== "published") return res.json({ session: { ...serialize(entry), summary: null }, segments: [] });
   // Listeners get the transcript in the language they read (falling back to the default one).
   const segments = (await sessions.segments(entry.id)).map((s) => {
     const lang = s.translations[entry.lang] !== undefined ? entry.lang : DEFAULT_TARGET;

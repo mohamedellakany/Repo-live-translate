@@ -1,7 +1,10 @@
 import { Router, type Response } from "express";
 import rateLimit from "express-rate-limit";
-import { verifyApproveToken } from "../auth.js";
-import { config } from "../config.js";
+import { requireAuth, verifyApproveToken } from "../auth.js";
+import { providerChain } from "../translation/caps.js";
+import { monthChars, usageHistory, usageMonth } from "../translation/usage.js";
+import { translator } from "../translation/index.js";
+import { adminUsernames, config, features } from "../config.js";
 import { users } from "../db.js";
 import { grantSpeaking } from "../speaking.js";
 
@@ -58,4 +61,28 @@ adminRouter.post("/approve-speaker", async (req, res) => {
   if (!u) return page(res, "Account not found", "<p>This account has been deleted.</p>", 404);
   if (!u.can_speak) await grantSpeaking(u);
   page(res, "Approved ✓", `<p>@${esc(u.username)} (${esc(u.email)}) can now speak. We've emailed them to let them know.</p>`);
+});
+
+/** Translation usage for the Usage page in the app: only for ADMIN_USERNAMES. */
+adminRouter.get("/usage", requireAuth, async (req, res) => {
+  if (!adminUsernames.has(req.user!.username.toLowerCase())) return res.status(403).json({ error: "Only the account owner can see usage" });
+  const month = usageMonth();
+  const chain = providerChain();
+  const history = await usageHistory(6);
+  // The provider currently translating: the first in the chain still under its limit.
+  const active = chain.find((p) => translator.hasRoom(p.name))?.name ?? chain[0]?.name ?? null;
+  res.json({
+    month,
+    active,
+    liveMode: features.liveMode,
+    listenLanguages: config.LISTEN_LANGUAGES ?? "all",
+    providers: chain.map((p) => ({
+      name: p.name,
+      label: p.label,
+      used: Math.max(monthChars(p.name), history.find((h) => h.month === month && h.provider === p.name)?.chars ?? 0),
+      limit: p.limit,
+      allowance: p.allowance,
+    })),
+    history,
+  });
 });

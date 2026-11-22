@@ -98,6 +98,9 @@ export default function Library() {
                     {item.speaker.displayName} · @{item.speaker.username}
                   </Text>
                   <Text style={styles.meta}>{meta}</Text>
+                  {item.reviewStatus === "reviewing" && (
+                    <Text style={[styles.meta, { color: colors.warning, fontWeight: "600" }]}>⏳ {t("review.tag")}</Text>
+                  )}
                 </View>
                 <Ionicons name={isRTL ? "chevron-back" : "chevron-forward"} size={18} color={colors.textDim} />
               </Pressable>

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
-import { config } from "./config.js";
+import { adminUsernames, config } from "./config.js";
 
 /*
  * PostgreSQL (Neon in production). Every function here is async.
@@ -101,6 +101,11 @@ const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN speak_requested_at TIMESTAMPTZ;
   ALTER TABLE users ADD COLUMN speak_request_note TEXT;
   `,
+  // 5: the speaker reviews the transcript before readers see it. Existing sessions count as already published.
+  `
+  ALTER TABLE sessions ADD COLUMN review_status TEXT NOT NULL DEFAULT 'published';
+  ALTER TABLE sessions ADD COLUMN published_at TIMESTAMPTZ;
+  `,
 ];
 
 export async function migrate() {
@@ -155,6 +160,8 @@ export interface PublicUser {
   googleLinked: boolean;
   /** Allowed to broadcast (granted with `npm run speaker -- <email> on`). */
   canSpeak: boolean;
+  /** May open the private Usage page (ADMIN_USERNAMES). */
+  isAdmin: boolean;
   /** When the user asked for speaking access (null if they haven't, or once it's granted). */
   speakRequestedAt: string | null;
   createdAt: string;
@@ -173,6 +180,9 @@ export interface SessionRow {
   chars_translated: number;
   summary: string | null;
   allow_revisit: boolean;
+  /** "reviewing" until the speaker publishes the final translation, then "published". */
+  review_status: "reviewing" | "published";
+  published_at: string | null;
 }
 /** A session in a listener's library, with the speaker's public info. */
 export interface LibraryRow {
@@ -186,6 +196,7 @@ export interface LibraryRow {
   username: string;
   display_name: string;
   segment_count: number;
+  review_status: "reviewing" | "published";
 }
 export interface Segment {
   seq: number;
@@ -203,6 +214,7 @@ export const toPublicUser = (u: UserRow): PublicUser => ({
   hasPassword: !!u.password_hash,
   googleLinked: !!u.google_sub,
   canSpeak: !!u.can_speak,
+  isAdmin: adminUsernames.has(u.username.toLowerCase()),
   speakRequestedAt: u.can_speak ? null : u.speak_requested_at,
   createdAt: u.created_at,
 });
@@ -295,8 +307,8 @@ export const sessions = {
     opts: { isPrivate: boolean; mode: TranslationMode; allowRevisit: boolean },
   ) {
     return (await one<SessionRow>(
-      `INSERT INTO sessions (id, speaker_id, title, source_lang, is_private, translation_mode, allow_revisit)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO sessions (id, speaker_id, title, source_lang, is_private, translation_mode, allow_revisit, review_status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'reviewing') RETURNING *`,
       [randomUUID(), speakerId, title, sourceLang, opts.isPrivate, opts.mode, opts.allowRevisit],
     ))!;
   },
@@ -313,6 +325,21 @@ export const sessions = {
     all<SessionRow & { segment_count: number }>(
       `SELECT s.*, ${SEGMENT_COUNT} FROM sessions s WHERE s.speaker_id = $1 ORDER BY s.started_at DESC LIMIT $2 OFFSET $3`,
       [speakerId, limit, offset],
+    ),
+  /** The speaker has finished reviewing: readers can now see the final transcript. Returns the row, or null if already published. */
+  publish: (id: string, speakerId: string) =>
+    one<SessionRow>(
+      `UPDATE sessions SET review_status = 'published', published_at = now()
+       WHERE id = $1 AND speaker_id = $2 AND review_status <> 'published' RETURNING *`,
+      [id, speakerId],
+    ),
+  /** Signed-in readers of a session with a verified email, to tell them the final transcript is ready. */
+  readersToNotify: (sessionId: string) =>
+    all<{ email: string; display_name: string; lang: string }>(
+      `SELECT u.email, u.display_name, l.lang FROM session_listeners l
+       JOIN users u ON u.id = l.user_id JOIN sessions s ON s.id = l.session_id
+       WHERE l.session_id = $1 AND u.email_verified AND u.id <> s.speaker_id`,
+      [sessionId],
     ),
   remove: async (id: string, speakerId: string) => (await run("DELETE FROM sessions WHERE id = $1 AND speaker_id = $2", [id, speakerId])) > 0,
   saveSummary: (id: string, summary: unknown) => run("UPDATE sessions SET summary = $1 WHERE id = $2", [JSON.stringify(summary), id]),
@@ -359,7 +386,7 @@ export const sessions = {
 /* --------------------------- listener libraries --------------------------- */
 // Only finished sessions whose speaker allows revisiting are visible to listeners.
 const LIBRARY_SELECT = `
-  SELECT s.id, s.title, s.source_lang, s.started_at, s.ended_at, s.summary, l.lang, u.username, u.display_name, ${SEGMENT_COUNT}
+  SELECT s.id, s.title, s.source_lang, s.started_at, s.ended_at, s.summary, s.review_status, l.lang, u.username, u.display_name, ${SEGMENT_COUNT}
   FROM session_listeners l JOIN sessions s ON s.id = l.session_id JOIN users u ON u.id = s.speaker_id`;
 
 export const library = {

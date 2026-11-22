@@ -98,6 +98,9 @@ export default function History() {
                     </Text>
                   </View>
                   <Text style={styles.meta}>{meta}</Text>
+                  {item.endedAt && item.reviewStatus === "reviewing" && (
+                    <Text style={[styles.meta, { color: colors.warning, fontWeight: "600" }]}>⏳ {t("review.speakerTag")}</Text>
+                  )}
                   {item.charsTranslated > 0 && (
                     <Text style={styles.chars}>{t("history.chars", { count: item.charsTranslated.toLocaleString() })}</Text>
                   )}

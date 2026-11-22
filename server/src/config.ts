@@ -53,6 +53,20 @@ const schema = z.object({
   // Stop using the fallback once it has sent this many characters this month (0 = no limit). With Google's
   // free 500,000, e.g. 490000 keeps it free; after that the main provider is used again.
   TRANSLATION_FALLBACK_LIMIT: z.coerce.number().int().nonnegative().default(0),
+  // Last step after the free ones: a pay-as-you-go Azure Translator key (S1, about $10 per 1M characters), used once
+  // the main and fallback providers have reached their monthly limits. TRANSLATION_PAID_LIMIT caps it per month so
+  // costs stay predictable (default 1,000,000 characters, about $10); after that translation stops until next month.
+  AZURE_TRANSLATOR_PAID_KEY: optional,
+  AZURE_TRANSLATOR_PAID_REGION: z.string().default("global"),
+  TRANSLATION_PAID_LIMIT: z.coerce.number().int().positive().default(1_000_000),
+  // Sign-up / sign-in attempts allowed per address every 15 minutes.
+  AUTH_RATE_LIMIT: z.coerce.number().int().positive().default(30),
+  // Reserved usernames (admin, support, …) can only be registered with an email on this domain.
+  STAFF_EMAIL_DOMAIN: z.string().trim().toLowerCase().default("lisancast.com"),
+  // LisanCast usernames (comma-separated) allowed to open the private Usage page in the app.
+  ADMIN_USERNAMES: optional,
+  // Public web address of the app, used in emails (e.g. https://app.lisancast.com). Defaults to the first CORS origin.
+  APP_URL: optional,
   ANTHROPIC_API_KEY: optional,
   CLAUDE_MODEL: z.string().default("claude-opus-5-5"),
 
@@ -150,3 +164,14 @@ if (
 
 /** Who receives speaking-access requests: ADMIN_EMAIL, or the SMTP login when it's an email address (Gmail). */
 export const adminEmail = config.ADMIN_EMAIL ?? (config.SMTP_USER?.includes("@") ? config.SMTP_USER : undefined);
+
+/** Usernames allowed to see the Usage page (ADMIN_USERNAMES). */
+export const adminUsernames = new Set(
+  (config.ADMIN_USERNAMES ?? "").split(",").map((u) => u.trim().replace(/^@/, "").toLowerCase()).filter(Boolean),
+);
+
+/** The web app's public address, for links in emails. */
+export const appUrl = (
+  config.APP_URL ??
+  (Array.isArray(config.corsOrigins) && config.corsOrigins[0] ? config.corsOrigins[0] : "http://localhost:8081")
+).replace(/\/$/, "");

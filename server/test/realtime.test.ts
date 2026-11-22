@@ -11,6 +11,9 @@ process.env.ADMIN_EMAIL = "owner@x.com";
 process.env.LISTEN_LANGUAGES = "en,fr";
 // Most tests exercise "Live" (word-by-word) translation, so it is switched on here; see the test that switches it off.
 process.env.LIVE_MODE_ENABLED = "true";
+process.env.ADMIN_USERNAMES = "boss";
+// The suite signs up many accounts from one address; the live default (30 per 15 minutes) would block it.
+process.env.AUTH_RATE_LIMIT = "1000";
 // A throwaway PostgreSQL database, wiped before every run. Never point this at real data.
 process.env.DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://localhost:54329/lisancast_test";
 {
@@ -98,6 +101,18 @@ test("registration validation, duplicates and login", async () => {
   assert.equal((await post("/api/auth/login", { login: "@AHMED_1", password: "password123" })).status, 200);
 });
 
+test("reserved usernames (admin, support…) only with an email on the app's own domain", async () => {
+  const outsider = await post("/api/auth/register", { username: "admin", email: "someone@gmail.com", displayName: "X", password: "password123" });
+  assert.equal(outsider.status, 400);
+  assert.equal(outsider.body.error, "This username is reserved");
+  const staff = await post("/api/auth/register", { username: "Admin", email: "admin@lisancast.com", displayName: "LisanCast", password: "password123" });
+  assert.equal(staff.status, 201);
+  assert.equal(staff.body.user.username, "admin");
+  // Google sign-up follows the same rule.
+  const g = signSignupToken({ sub: "g-support", email: "someone@outlook.com", emailVerified: true, name: "S" });
+  assert.equal((await post("/api/auth/google/complete", { signupToken: g, username: "support", displayName: "S" })).status, 400);
+});
+
 test("email OTP verification is required before going live", async () => {
   const reg = await post("/api/auth/register", { username: "otpuser", email: "otp@x.com", displayName: "O", password: "password123" });
   const token = reg.body.token;
@@ -147,12 +162,13 @@ test("password reset by emailed code", async () => {
   assert.equal((await post("/api/auth/login", { login: "forgetful", password: "newpassword1" })).status, 200);
 });
 
-test("account deletion requires the password and removes everything", async () => {
+test("account deletion is confirmed by typing the username, and removes everything", async () => {
   const token = await verifiedSpeaker("leaver");
   const s = open(token);
   await emitAck(s, "speaker:start", { sourceLang: "ar" });
-  assert.equal((await call("DELETE", "/api/auth/me", { password: "nope" }, token)).status, 401);
-  assert.equal((await call("DELETE", "/api/auth/me", { password: "password123" }, token)).status, 204);
+  assert.equal((await call("DELETE", "/api/auth/me", { confirmUsername: "someone-else" }, token)).status, 400);
+  assert.equal((await call("DELETE", "/api/auth/me", { password: "nope" }, token)).status, 400);
+  assert.equal((await call("DELETE", "/api/auth/me", { confirmUsername: "@Leaver" }, token)).status, 204);
   assert.equal((await call("GET", "/api/speakers/leaver")).status, 404);
   assert.equal((await post("/api/auth/login", { login: "leaver", password: "password123" })).status, 401);
 });
@@ -258,6 +274,9 @@ test("listener libraries: attended sessions can be reopened if the speaker allow
   assert.equal(list[0].title, "Lecture 1");
   assert.equal(list[0].lang, "fr");
   assert.deepEqual(list[0].speaker, { username: "lecturer", displayName: "lecturer" });
+  assert.equal(list[0].reviewStatus, "reviewing");
+  // Readers see the transcript once the speaker has reviewed and published it.
+  assert.equal((await post(`/api/sessions/${started.sessionId}/publish`, {}, speakerToken)).status, 200);
   const detail = await get(`/api/library/${started.sessionId}`, readerToken);
   assert.equal(detail.body.segments[0].translation, "[fr] درس اليوم");
   assert.equal((await get("/api/library", speakerToken)).body.sessions.length, 0, "speakers don't collect their own sessions");
@@ -470,4 +489,70 @@ test("the speaker can correct a line of a finished transcript; nobody else can",
   assert.equal((await post(`/api/sessions/${started.sessionId}/retranslate`, { text: "x" }, other.body.token)).status, 404);
   const unchanged = await call("GET", `/api/sessions/${started.sessionId}`, undefined, token);
   assert.equal(unchanged.body.segments[0].translations.en, "Welcome, everyone");
+});
+
+test("sessions are reviewed before readers see them; publishing emails signed-in readers", async () => {
+  const { users } = await import("../src/db.js");
+  const make = async (username: string) => {
+    const reg = await post("/api/auth/register", { username, email: `${username}@x.com`, displayName: username, password: "password123" });
+    await users.setEmailVerified(reg.body.user.id);
+    return reg.body as { token: string; user: { id: string } };
+  };
+  const speaker = await make("revspeaker");
+  await allowSpeaking(speaker.user.id);
+  const reader = await make("revreader");
+
+  const s = open(speaker.token);
+  const started = await emitAck(s, "speaker:start", { sourceLang: "ar", translationMode: "sentences" });
+  const listener = open(reader.token);
+  await emitAck(listener, "listener:join", { username: "revspeaker", lang: "en" });
+  const caption = next(listener, "caption:translation", (d) => d.isFinal);
+  s.emit("speaker:final", { seq: 1, text: "مرحبا بكم" });
+  await caption;
+  await emitAck(s, "speaker:stop", {});
+  await sleep(200);
+
+  // Ended, but still in review: the reader sees it listed as "reviewing", without the transcript.
+  const list = await call("GET", "/api/library", undefined, reader.token);
+  const item = list.body.sessions.find((x: { id: string }) => x.id === started.sessionId);
+  assert.equal(item.reviewStatus, "reviewing");
+  const hidden = await call("GET", `/api/library/${started.sessionId}`, undefined, reader.token);
+  assert.deepEqual(hidden.body.segments, []);
+  assert.equal(hidden.body.session.summary, null);
+  const speakerView = await call("GET", `/api/sessions/${started.sessionId}`, undefined, speaker.token);
+  assert.equal(speakerView.body.session.reviewStatus, "reviewing");
+  assert.equal(speakerView.body.segments.length, 1); // the speaker can see and edit everything
+
+  // Only the speaker can publish.
+  assert.equal((await post(`/api/sessions/${started.sessionId}/publish`, {}, reader.token)).status, 404);
+  const pub = await post(`/api/sessions/${started.sessionId}/publish`, {}, speaker.token);
+  assert.equal(pub.status, 200);
+  assert.equal(pub.body.session.reviewStatus, "published");
+  assert.equal(pub.body.notified, 1);
+  await sleep(100);
+  assert.ok(devMessages.some((m) => m.to === "revreader@x.com" && m.subject.includes("final translation") && m.text.includes(`/library/${started.sessionId}`)));
+  const shown = await call("GET", `/api/library/${started.sessionId}`, undefined, reader.token);
+  assert.equal(shown.body.segments.length, 1);
+  // Publishing again doesn't email anyone twice.
+  assert.equal((await post(`/api/sessions/${started.sessionId}/publish`, {}, speaker.token)).body.notified, 0);
+});
+
+test("the Usage page is only for the account owner", async () => {
+  // Created directly: the sign-up rate limit is shared with the other tests.
+  const { users } = await import("../src/db.js");
+  const { signToken } = await import("../src/auth.js");
+  const make = async (username: string) => {
+    const u = await users.create({ username, email: `${username}@x.com`, displayName: username, passwordHash: null, emailVerified: true });
+    return { token: signToken(u.id) };
+  };
+  const boss = { body: await make("boss") };
+  const other = { body: await make("someone") };
+  assert.equal((await call("GET", "/api/auth/me", undefined, boss.body.token)).body.user.isAdmin, true);
+  assert.equal((await call("GET", "/api/auth/me", undefined, other.body.token)).body.user.isAdmin, false);
+  const usage = await call("GET", "/api/admin/usage", undefined, boss.body.token);
+  assert.equal(usage.status, 200);
+  assert.ok(Array.isArray(usage.body.providers) && usage.body.providers.length >= 1);
+  assert.equal(typeof usage.body.providers[0].used, "number");
+  assert.equal((await call("GET", "/api/admin/usage", undefined, other.body.token)).status, 403);
+  assert.equal((await call("GET", "/api/admin/usage")).status, 401);
 });

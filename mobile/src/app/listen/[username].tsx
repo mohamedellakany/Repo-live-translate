@@ -352,6 +352,7 @@ export default function Listen() {
 
       {!connected && joinState === "joined" && <Banner tone="warning" icon="cloud-offline-outline" text={t("listen.reconnecting")} />}
       {status.live && status.reconnecting && <Banner tone="warning" text={t("listen.speakerDropped")} />}
+      {status.live && !isOwnSession && <Banner tone="info" icon="time-outline" text={t("listen.liveNotice", { name: speakerName })} />}
       {ended && isOwnSession && (
         // Speakers aren't added to their own listeners' library; their sessions live in Past sessions.
         <Card style={styles.saveCard}>

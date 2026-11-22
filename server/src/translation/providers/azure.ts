@@ -8,10 +8,11 @@ const CODE_MAP: Record<string, string> = { fa: "prs", zh: "zh-Hans" };
  * (F0: 2M characters/month). It doesn't take previous sentences as context.
  */
 export class AzureProvider implements TranslationProvider {
-  readonly name = "azure";
   constructor(
     private readonly apiKey: string,
     private readonly region: string,
+    /** "azure" for the main key; a second key (e.g. pay-as-you-go) gets its own name so its usage is counted apart. */
+    readonly name = "azure",
     private readonly endpoint = "https://api.cognitive.microsofttranslator.com",
   ) {}
 

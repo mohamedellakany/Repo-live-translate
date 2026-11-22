@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { requireAuth, signApproveToken, signSignupToken, signToken, verifySignupToken } from "../auth.js";
-import { adminEmail } from "../config.js";
+import { adminEmail, config } from "../config.js";
 import { toPublicUser, users, type UserRow } from "../db.js";
 import { verifyGoogleIdToken } from "../google.js";
 import { sendCodeEmail, sendSpeakingRequestEmail } from "../mailer.js";
@@ -14,18 +14,25 @@ export const authRouter = Router();
 
 const limiter = (limit: number) =>
   rateLimit({ windowMs: 15 * 60_000, limit, standardHeaders: "draft-8", legacyHeaders: false, message: { error: "Too many attempts. Please try again later." } });
-const authLimiter = limiter(30);
+const authLimiter = limiter(config.AUTH_RATE_LIMIT);
 const codeLimiter = limiter(15);
 const requestLimiter = limiter(10);
 
 const RESERVED = new Set(["admin", "root", "support", "api", "listen", "speak", "login", "register", "me", "privacy", "terms"]);
+/**
+ * Reserved usernames can only be taken with an email on the app's own domain (e.g. admin@lisancast.com), so nobody
+ * else can pose as LisanCast. Whoever controls that mailbox can always take the account over with a password reset.
+ */
+const isReservedFor = (username: string, email: string) =>
+  RESERVED.has(username) && !email.toLowerCase().endsWith(`@${config.STAFF_EMAIL_DOMAIN}`);
+const RESERVED_ERROR = "This username is reserved";
 
 const usernameSchema = z
   .string()
   .trim()
   .toLowerCase()
-  .regex(/^[a-z0-9_]{3,20}$/, "Username must be 3-20 characters: letters, numbers or underscore")
-  .refine((u) => !RESERVED.has(u), "This username is reserved");
+  .regex(/^[a-z0-9_]{3,20}$/, "Username must be 3-20 characters: letters, numbers or underscore");
+
 const displayNameSchema = z.string().trim().min(1, "Display name is required").max(60);
 const passwordSchema = z.string().min(8, "Password must be at least 8 characters").max(200);
 const emailSchema = z.email("Enter a valid email").trim().toLowerCase();
@@ -58,6 +65,7 @@ authRouter.post("/register", authLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
   const { username, email, displayName, password } = parsed.data;
 
+  if (isReservedFor(username, email)) return res.status(400).json({ error: RESERVED_ERROR });
   if (await users.byUsername(username)) return res.status(409).json({ error: "That username is taken" });
   if (await users.byEmail(email)) return res.status(409).json({ error: "An account with this email already exists" });
 
@@ -134,6 +142,7 @@ authRouter.post("/google/complete", authLimiter, async (req, res) => {
   if ((await users.byGoogleSub(g.sub)) || (await users.byEmail(g.email))) {
     return res.status(409).json({ error: "An account already exists for this Google account. Sign in instead." });
   }
+  if (isReservedFor(parsed.data.username, g.email)) return res.status(400).json({ error: RESERVED_ERROR });
   if (await users.byUsername(parsed.data.username)) return res.status(409).json({ error: "That username is taken" });
 
   let user: UserRow;
@@ -254,11 +263,11 @@ authRouter.delete("/me", requireAuth, authLimiter, async (req, res) => {
   const user = req.user!;
   const parsed = z.object({ password: z.string().optional(), confirmUsername: z.string().optional() }).safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: "Invalid request" });
-  if (user.password_hash) {
-    if (!parsed.data.password || !(await bcrypt.compare(parsed.data.password, user.password_hash))) {
-      return res.status(401).json({ error: "Incorrect password" });
-    }
-  } else if (parsed.data.confirmUsername?.trim().replace(/^@/, "").toLowerCase() !== user.username) {
+  // Confirmed by typing the username (any account). A correct password is also accepted, for older app versions.
+  const typedUsername = parsed.data.confirmUsername?.trim().replace(/^@/, "").toLowerCase();
+  const passwordOk =
+    !!parsed.data.password && !!user.password_hash && (await bcrypt.compare(parsed.data.password, user.password_hash));
+  if (typedUsername !== user.username && !passwordOk) {
     return res.status(400).json({ error: "Type your username to confirm" });
   }
   await forceEndSpeaker(user.id);

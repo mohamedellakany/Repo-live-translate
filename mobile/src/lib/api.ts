@@ -10,6 +10,8 @@ export interface User {
   googleLinked: boolean;
   /** Speaking (broadcasting) is by approval; listening is open to everyone. */
   canSpeak: boolean;
+  /** May open the private Usage page. */
+  isAdmin?: boolean;
   /** When the user asked for speaking access; null if they haven't (or already have it). */
   speakRequestedAt: string | null;
   createdAt: string;
@@ -46,6 +48,8 @@ export interface SessionInfo {
   allowRevisit: boolean;
   /** The server is writing this session's AI summary right now (e.g. automatically after it ended). */
   summaryPending?: boolean;
+  /** "reviewing" until the speaker publishes the final translation for readers. */
+  reviewStatus?: "reviewing" | "published";
 }
 export interface SessionSummary extends SessionInfo {
   segmentCount: number;
@@ -63,6 +67,16 @@ export interface LibraryItem {
   speaker: { username: string; displayName: string };
   segmentCount: number;
   hasSummary: boolean;
+  /** "reviewing": the speaker is still checking it; the transcript appears once published. */
+  reviewStatus?: "reviewing" | "published";
+}
+export interface UsageReport {
+  month: string;
+  active: string | null;
+  liveMode: boolean;
+  listenLanguages: string;
+  providers: { name: string; label: string; used: number; limit: number; allowance: number }[];
+  history: { month: string; provider: string; chars: number; calls: number }[];
 }
 export interface LibrarySegment {
   seq: number;
@@ -157,6 +171,11 @@ export const api = {
   sessions: () => request<{ sessions: SessionSummary[] }>("GET", "/api/sessions"),
   session: (id: string) =>
     request<{ session: SessionInfo & { summary: Summary | null }; segments: TranscriptSegment[] }>("GET", `/api/sessions/${enc(id)}`),
+  /** The speaker has finished reviewing: readers can see it, and signed-in readers are emailed. */
+  publishSession: (id: string) =>
+    request<{ session: SessionInfo & { summary: Summary | null }; notified: number }>("POST", `/api/sessions/${enc(id)}/publish`, {}),
+  /** Translation usage for the private Usage page (account owner only). */
+  usage: () => request<UsageReport>("GET", "/api/admin/usage"),
   summarize: (id: string, lang: string) => request<{ summary: Summary }>("POST", `/api/sessions/${enc(id)}/summary`, { lang }),
   /** Correct one line of a finished session (its original wording and/or its translation). */
   editSegment: (id: string, seq: number, edit: { original?: string; translation?: string; lang?: string }) =>

@@ -39,6 +39,8 @@ const AR: Record<string, string> = {
   "The text can't be empty": "لا يمكن أن يكون النص فارغاً",
   "Nothing to change": "لا يوجد ما يمكن تغييره",
   "Line not found": "السطر غير موجود",
+  "Stop the live session before publishing it": "أوقف البث المباشر قبل نشر الجلسة",
+  "Only the account owner can see usage": "صفحة الاستخدام متاحة لصاحب الحساب فقط",
   "Translation unavailable. Please try again": "الترجمة غير متاحة. حاول مرة أخرى",
   "Too many attempts. Please try again later.": "محاولات كثيرة. حاول مرة أخرى لاحقاً.",
   "Not found": "غير موجود",

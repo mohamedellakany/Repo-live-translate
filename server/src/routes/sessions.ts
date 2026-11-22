@@ -2,7 +2,8 @@ import { z } from "zod";
 import { Router } from "express";
 import rateLimit from "express-rate-limit";
 import { requireAuth } from "../auth.js";
-import { features } from "../config.js";
+import { appUrl, features } from "../config.js";
+import { sendTranscriptReadyEmail } from "../mailer.js";
 import { sessions, type SessionRow } from "../db.js";
 import { DEFAULT_TARGET, isTargetLanguage } from "../languages.js";
 import { liveSessionId } from "../realtime.js";
@@ -23,6 +24,8 @@ const serialize = (s: SessionRow) => ({
   translationMode: s.translation_mode,
   charsTranslated: s.chars_translated,
   allowRevisit: !!s.allow_revisit,
+  reviewStatus: s.review_status,
+  publishedAt: s.published_at,
   summary: s.summary ? JSON.parse(s.summary) : null,
   summaryPending: isSummaryPending(s.id),
 });
@@ -97,6 +100,30 @@ sessionsRouter.post("/:id/retranslate", retranslateLimiter, async (req, res) => 
     console.error("[retranslate]", describeTranslationError(err));
     res.status(502).json({ error: "Translation unavailable. Please try again" });
   }
+});
+
+/**
+ * The speaker has finished reviewing: readers can now see the final transcript, and those with an account are
+ * emailed. Emails go out in the background, so the speaker isn't kept waiting.
+ */
+sessionsRouter.post("/:id/publish", async (req, res) => {
+  const s = await sessions.byId(String(req.params.id));
+  if (!s || s.speaker_id !== req.user!.id) return res.status(404).json({ error: "Session not found" });
+  if (liveSessionId(req.user!.id) === s.id || !s.ended_at) return res.status(409).json({ error: "Stop the live session before publishing it" });
+  const published = await sessions.publish(s.id, req.user!.id);
+  if (!published) return res.json({ session: serialize(s), notified: 0 }); // already published
+  const readers = await sessions.readersToNotify(s.id);
+  const summaryTitle = published.summary ? (JSON.parse(published.summary) as { title?: string }).title : undefined;
+  const title = published.title || summaryTitle || "your session";
+  const url = `${appUrl}/library/${encodeURIComponent(s.id)}`;
+  void (async () => {
+    for (const r of readers) {
+      await sendTranscriptReadyEmail(r.email, r.display_name, { title, speaker: req.user!.display_name, url }).catch((err) =>
+        console.error("[mail] transcript-ready email failed", (err as Error).message),
+      );
+    }
+  })();
+  res.json({ session: serialize(published), notified: readers.length });
 });
 
 /** Correct one line of a finished session's transcript (the original wording and/or its translation). */

@@ -113,3 +113,21 @@ export async function sendSpeakingApprovedEmail(to: string, name: string) {
     <p dir="rtl" style="text-align:right">تم تفعيل صلاحية التحدث لحسابك. افتح ${escapeHtml(app)} واضغط <b>ابدأ التحدث</b> لبدء البث.</p>`);
   await send(to, subject, text, html);
 }
+
+/** To a reader: the speaker has finished reviewing, the final transcript is ready. */
+export async function sendTranscriptReadyEmail(to: string, name: string, s: { title: string; speaker: string; url: string }) {
+  const app = config.APP_NAME;
+  const subject = `${app}: the final translation of "${s.title}" is ready`;
+  const text =
+    `Hi ${name},\n\n${s.speaker} has finished reviewing "${s.title}". The final translation is ready to read:\n${s.url}\n\n—\n\n` +
+    `أنهى ${s.speaker} مراجعة "${s.title}". الترجمة النهائية جاهزة للقراءة:\n${s.url}`;
+  const html = wrap(`
+    <h2 style="margin:0 0 16px">${escapeHtml(app)}</h2>
+    <p>Hi ${escapeHtml(name)},</p>
+    <p><b>${escapeHtml(s.speaker)}</b> has finished reviewing <b>${escapeHtml(s.title)}</b>. The final translation is ready to read.</p>
+    <p><a href="${escapeHtml(s.url)}" style="display:inline-block;background:#0f766e;color:#fff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Read the final translation</a></p>
+    <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+    <p dir="rtl" style="text-align:right">أنهى <b>${escapeHtml(s.speaker)}</b> مراجعة <b>${escapeHtml(s.title)}</b>. الترجمة النهائية جاهزة للقراءة.</p>
+    <p dir="rtl" style="text-align:right"><a href="${escapeHtml(s.url)}">اقرأ الترجمة النهائية</a></p>`);
+  await send(to, subject, text, html);
+}

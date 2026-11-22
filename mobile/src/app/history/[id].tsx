@@ -30,6 +30,8 @@ export default function SessionTranscript() {
   const [retranslating, setRetranslating] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [editedSinceSummary, setEditedSinceSummary] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState<number | null>(null);
 
   // After a reload the saved login is restored asynchronously; fetching before then fails with "Authentication required".
   useEffect(() => {
@@ -132,6 +134,31 @@ export default function SessionTranscript() {
     }
   };
 
+  /** Done reviewing: readers can see the final transcript and signed-in readers get an email. */
+  const publish = () => {
+    const doPublish = async () => {
+      setPublishing(true);
+      setError(null);
+      try {
+        const res = await api.publishSession(String(id));
+        setData((d) => (d ? { ...d, session: { ...d.session, ...res.session } } : d));
+        setPublished(res.notified);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setPublishing(false);
+      }
+    };
+    if (Platform.OS === "web") {
+      if (globalThis.confirm?.(`${t("review.confirmTitle")}\n${t("review.confirmText")}`)) void doPublish();
+    } else {
+      Alert.alert(t("review.confirmTitle"), t("review.confirmText"), [
+        { text: t("common.cancel"), style: "cancel" },
+        { text: t("review.publish"), onPress: () => void doPublish() },
+      ]);
+    }
+  };
+
   const setAllowRevisit = async (allowRevisit: boolean) => {
     setError(null);
     setData((d) => (d ? { ...d, session: { ...d.session, allowRevisit } } : d));
@@ -192,6 +219,16 @@ export default function SessionTranscript() {
             )}
           </View>
 
+          {data.session.endedAt && data.session.reviewStatus === "reviewing" && (
+            <Card style={{ gap: spacing.sm, borderWidth: 1, borderColor: colors.warning }}>
+              <Text style={[styles.title, { fontSize: 17 }]}>⏳ {t("review.speakerTitle")}</Text>
+              <Text style={[styles.meta, { fontSize: 14, lineHeight: 21 }]}>{t("review.speakerText")}</Text>
+              <Button title={t("review.publish")} icon="checkmark-done" onPress={publish} loading={publishing} />
+            </Card>
+          )}
+          {published !== null && (
+            <Banner tone="info" icon="checkmark-circle" text={t("review.published", { count: published })} />
+          )}
           {editedSinceSummary && summary && features.summaries && (
             <Banner tone="info" icon="sparkles-outline" text={t("history.editedSinceSummary")} />
           )}

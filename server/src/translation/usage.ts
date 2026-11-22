@@ -1,4 +1,4 @@
-import { config } from "../config.js";
+import { allowanceFor } from "./caps.js";
 import { pool } from "../db.js";
 
 /*
@@ -49,7 +49,7 @@ export async function flushUsage() {
          RETURNING chars`,
         [month, provider, u.chars, u.calls],
       );
-      if (provider === config.TRANSLATION_PROVIDER) warnIfNearLimit(month, provider, rows[0].chars);
+      warnIfNearLimit(month, provider, rows[0].chars);
     } catch (err) {
       console.error("[usage] couldn't save translation usage, will retry:", (err as Error).message);
       add(key, u.chars, u.calls);
@@ -62,10 +62,10 @@ export async function flushUsage() {
 }
 
 function warnIfNearLimit(month: string, provider: string, chars: number) {
-  const limit = config.TRANSLATION_MONTHLY_LIMIT;
+  const limit = allowanceFor(provider);
   if (!limit) return;
   for (const level of WARN_AT) {
-    const key = `${month}|${level}`;
+    const key = `${month}|${provider}|${level}`;
     if (chars >= limit * level && !warned.has(key)) {
       warned.add(key);
       console.warn(

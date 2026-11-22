@@ -51,7 +51,7 @@ export default function Account() {
     setDeleteBusy(true);
     setDeleteError(null);
     try {
-      await deleteAccount(user.hasPassword ? { password: confirmValue } : { confirmUsername: confirmValue });
+      await deleteAccount({ confirmUsername: confirmValue });
       setDeleting(false);
       router.replace("/");
     } catch (e) {
@@ -80,6 +80,11 @@ export default function Account() {
         </Card>
       )}
       {message && <Banner tone={message.tone} text={message.text} />}
+
+      {/* Admin only (ADMIN_USERNAMES): translation usage at a glance. */}
+      {user.isAdmin && (
+        <Button title={t("usage.title")} icon="stats-chart-outline" onPress={() => router.push("/usage")} />
+      )}
 
       <Card>
         <TextField label={t("account.displayName")} value={name} onChangeText={setNameDraft} maxLength={60} />
@@ -153,15 +158,15 @@ export default function Account() {
 
       <Sheet visible={deleting} onClose={() => setDeleting(false)} title={t("account.deleteConfirmTitle")}>
         <Text style={styles.meta}>
-          {user.hasPassword ? t("account.deleteConfirmPassword") : t("account.deleteConfirmUsername", { username: user.username })}
+          {t("account.deleteConfirmUsername", { username: user.username })}
         </Text>
         <TextField
           value={confirmValue}
           onChangeText={setConfirmValue}
-          secureTextEntry={user.hasPassword}
+          secureTextEntry={false}
           autoCapitalize="none"
           autoCorrect={false}
-          placeholder={user.hasPassword ? t("auth.password") : user.username}
+          placeholder={user.username}
           error={deleteError}
           autoFocus
         />

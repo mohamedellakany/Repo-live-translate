@@ -1,10 +1,11 @@
+import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import { Redirect, router, useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Platform, ScrollView, Share, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
 import { SummaryCard, summaryText } from "@/components/SummaryCard";
-import { AppHeader, Banner, Button, IconButton, Screen } from "@/components/ui";
+import { AppHeader, Banner, Button, Card, IconButton, Screen } from "@/components/ui";
 import { VoiceSheet } from "@/components/VoiceSheet";
 import { DEFAULT_TARGET, LANGUAGES } from "@/constants/languages";
 import { useI18n } from "@/i18n";
@@ -153,7 +154,17 @@ export default function LibrarySession() {
 
           {summary && <SummaryCard summary={summary} />}
 
-          {data.segments.length === 0 && <Text style={styles.meta}>{t("history.nothingSaid")}</Text>}
+          {session.reviewStatus === "reviewing" ? (
+            <Card style={{ gap: spacing.sm, alignItems: "center" }}>
+              <Ionicons name="hourglass-outline" size={36} color={colors.warning} />
+              <Text style={[styles.title, { fontSize: 18, textAlign: "center" }]}>{t("review.readerTitle")}</Text>
+              <Text style={[styles.meta, { textAlign: "center", fontSize: 14, lineHeight: 21 }]}>
+                {t("review.readerText", { name: session.speaker.displayName })}
+              </Text>
+            </Card>
+          ) : (
+            data.segments.length === 0 && <Text style={styles.meta}>{t("history.nothingSaid")}</Text>
+          )}
           {data.segments.map((s, i) => {
             const translationRtl = LANGUAGES[s.translationLang]?.rtl ?? false;
             return (

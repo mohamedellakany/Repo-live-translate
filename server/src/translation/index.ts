@@ -6,6 +6,7 @@ import { FreeGoogleProvider } from "./providers/free.js";
 import { GoogleCloudProvider } from "./providers/google.js";
 import { MockProvider } from "./providers/mock.js";
 import type { TranslateRequest, TranslationProvider } from "./types.js";
+import { PAID_PROVIDER } from "./caps.js";
 
 type ProviderName = typeof config.TRANSLATION_PROVIDER;
 
@@ -54,27 +55,39 @@ const TIMEOUT_MS = { partial: 4_000, final: 10_000 };
 /** Called after every request actually sent to a provider (not cache hits), with the characters sent. */
 export type UsageListener = (provider: string, chars: number) => void;
 
+/** The fallback providers after the main one: the free fallback, then the pay-as-you-go Azure key (if configured). */
+function defaultFallbacks(): TranslationProvider[] {
+  const list: TranslationProvider[] = [];
+  const fb = config.TRANSLATION_FALLBACK_PROVIDER;
+  if (fb && fb !== config.TRANSLATION_PROVIDER) list.push(createProvider(fb));
+  if (config.AZURE_TRANSLATOR_PAID_KEY) {
+    list.push(new AzureProvider(config.AZURE_TRANSLATOR_PAID_KEY, config.AZURE_TRANSLATOR_PAID_REGION, PAID_PROVIDER));
+  }
+  return list;
+}
+
+const REFUSED = new Set([401, 403, 429]);
+
 export class Translator {
   private cache = new LruCache<string>(5_000);
   onUsage?: UsageListener;
   /**
-   * Set by the server from this month's usage (see usage.ts): `preferFallback` = the main provider has reached its
-   * switch point; `fallbackHasRoom` = the fallback is still under its own monthly limit.
+   * Set by the server from this month's usage (see usage.ts): whether a provider is still under its monthly limit.
+   * Providers are tried in order (main, then fallbacks); the first one with room translates.
    */
-  preferFallback: () => boolean = () => false;
-  fallbackHasRoom: () => boolean = () => true;
-  private announcedFallback = false;
+  hasRoom: (provider: string) => boolean = () => true;
+  private lastUsed: string | null = null;
   /** `provider` translates finished sentences; `preview` translates sentences still being spoken. */
   private readonly preview: TranslationProvider;
+  /** Main provider first, then the fallbacks in order. */
+  readonly chain: TranslationProvider[];
   constructor(
     private readonly provider: TranslationProvider = createProvider(config.TRANSLATION_PROVIDER),
     preview?: TranslationProvider,
-    /** Takes over when the main provider is near its monthly allowance or refuses a request. */
-    readonly fallback: TranslationProvider | null = config.TRANSLATION_FALLBACK_PROVIDER &&
-    config.TRANSLATION_FALLBACK_PROVIDER !== config.TRANSLATION_PROVIDER
-      ? createProvider(config.TRANSLATION_FALLBACK_PROVIDER)
-      : null,
+    /** Used in order once the main provider has reached its monthly limit, or when a provider refuses a request. */
+    fallbacks: TranslationProvider[] = defaultFallbacks(),
   ) {
+    this.chain = [provider, ...fallbacks.filter((f) => f.name !== provider.name)];
     this.preview =
       preview ??
       (config.TRANSLATION_PREVIEW_PROVIDER && config.TRANSLATION_PREVIEW_PROVIDER !== config.TRANSLATION_PROVIDER
@@ -82,10 +95,10 @@ export class Translator {
         : provider);
   }
 
-  /** e.g. "deepl", or "deepl (previews: azure)" when previews use a different provider. */
+  /** e.g. "azure, then google, then azure-paid" (or "deepl (previews: azure)" when previews use another provider). */
   get providerName() {
     const base = this.preview === this.provider ? this.provider.name : `${this.provider.name} (previews: ${this.preview.name})`;
-    return this.fallback ? `${base}, then ${this.fallback.name}` : base;
+    return [base, ...this.chain.slice(1).map((p) => p.name)].join(", then ");
   }
 
   /** `meter.chars` is incremented by the characters actually sent to the provider (cache hits are free). */
@@ -93,12 +106,14 @@ export class Translator {
     const text = req.text.trim();
     if (!text || req.from === req.to) return text;
 
-    const main = req.kind === "partial" ? this.preview : this.provider;
-    const fallback = this.fallback && this.fallbackHasRoom() ? this.fallback : null;
-    const provider = fallback && this.preferFallback() ? fallback : main;
-    if (provider === fallback && !this.announcedFallback) {
-      this.announcedFallback = true;
-      console.warn(`[translation] ${main.name} reached its monthly switch point; translating with ${fallback.name} now.`);
+    // The first provider in the chain that's still under its monthly limit; if none has room, the main one
+    // (it may still accept a few more, or refuse and the request fails).
+    const withRoom = this.chain.filter((p) => this.hasRoom(p.name));
+    const first = withRoom[0] ?? this.provider;
+    const provider = first === this.provider && req.kind === "partial" ? this.preview : first;
+    if (first.name !== this.lastUsed) {
+      if (this.lastUsed) console.warn(`[translation] now translating with ${first.name} (monthly limits: ${this.lastUsed} reached or back in the chain).`);
+      this.lastUsed = first.name;
     }
     // Keyed by provider, so a finished sentence never reuses a cheaper preview translation of the same text.
     const key = `${provider.name}|${req.from}|${req.to}|${text}`;
@@ -107,24 +122,26 @@ export class Translator {
 
     const timeout = AbortSignal.timeout(TIMEOUT_MS[req.kind]);
     const signal = req.signal ? AbortSignal.any([req.signal, timeout]) : timeout;
-    let used = provider;
-    let result: string;
-    try {
-      result = await provider.translate({ ...req, text, signal });
-    } catch (err) {
-      // One provider refused (quota used up, key problem, rate limit): try the other one for this sentence.
-      // Main → fallback, or, after switching, fallback → main (it usually still has a little room before 2M).
-      const status = (err as { status?: number }).status;
-      const other = provider === main ? fallback : main;
-      if (!fallback || !other || !status || ![401, 403, 429].includes(status)) throw err;
-      console.warn(`[translation] ${provider.name} refused (${describeTranslationError(err)}); using ${other.name}.`);
-      used = other;
-      result = await other.translate({ ...req, text, signal: AbortSignal.timeout(TIMEOUT_MS[req.kind]) });
+    // If a provider refuses (quota used up, key problem, rate limit), try the next ones that have room,
+    // then the main one, so one bad key never stops the translation.
+    const order: TranslationProvider[] = [provider];
+    for (const p of [...withRoom, this.provider]) if (p !== first && !order.includes(p)) order.push(p);
+    let lastError: unknown;
+    for (const [i, p] of order.entries()) {
+      try {
+        const result = await p.translate({ ...req, text, signal: i === 0 ? signal : AbortSignal.timeout(TIMEOUT_MS[req.kind]) });
+        if (req.meter) req.meter.chars += text.length;
+        this.onUsage?.(p.name, text.length);
+        this.cache.set(key, result);
+        return result;
+      } catch (err) {
+        lastError = err;
+        const status = (err as { status?: number }).status;
+        if (!status || !REFUSED.has(status) || i === order.length - 1) throw err;
+        console.warn(`[translation] ${p.name} refused (${describeTranslationError(err)}); trying ${order[i + 1].name}.`);
+      }
     }
-    if (req.meter) req.meter.chars += text.length;
-    this.onUsage?.(used.name, text.length);
-    this.cache.set(key, result);
-    return result;
+    throw lastError;
   }
 
   /** Translate one known phrase at boot so a misconfigured provider is obvious immediately. */
