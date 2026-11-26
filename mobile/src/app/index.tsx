@@ -7,6 +7,7 @@ import { Button, Card, Chip, IconButton, Screen, TextField } from "@/components/
 import { useI18n } from "@/i18n";
 import { useSwitchLanguage } from "@/i18n/LanguageTransition";
 import { useServerConfig } from "@/lib/serverConfig";
+import { GetTheApp } from "@/components/GetTheApp";
 import { InstallAppPrompt } from "@/components/InstallAppPrompt";
 import { api } from "@/lib/api";
 import { normalizeUsername } from "@/lib/format";
@@ -96,6 +97,8 @@ export default function Home() {
         </View>
       </View>
 
+      {/* Android browsers: the Google Play app. Computers: install the website. iPhones: nothing yet (App Store later). */}
+      <GetTheApp variant="card" />
       <InstallAppPrompt />
 
       <Card>
@@ -173,6 +176,7 @@ export default function Home() {
         )}
       </Card>
 
+      <GetTheApp variant="footer" />
       <View style={styles.footer}>
         <Link href="/contact" style={styles.footerLink}>
           {t("home.contact")}
