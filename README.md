@@ -149,6 +149,18 @@ Listeners on a phone can also open the web URL `http://<your-computer-ip>:8082`.
 
 > **Note:** browsers only allow the **microphone** on `https://` or `localhost`, so a phone *speaking* through the browser needs HTTPS (see [Deployment](#deployment)).
 
+### Maintenance mode
+
+Take the site offline for maintenance without redeploying (takes effect immediately):
+
+```bash
+./deploy/maintenance.sh on      # website shows a "We'll be back shortly" page; the apps say "under maintenance"
+./deploy/maintenance.sh status
+./deploy/maintenance.sh off     # back to normal
+```
+
+The server and key come from `DEPLOY_TARGET` and `DEPLOY_KEY` in `deploy/.env`. Visitors get HTTP 503 with `Retry-After`, so search engines treat it as a temporary pause. The page is `deploy/maintenance/index.html`. The server and database keep running behind it.
+
 ### Build an Android APK for testing
 
 Builds on this Mac (no Expo account needed) and saves the APK as `~/Downloads/Apps/lisancast.apk`, replacing the previous one:

@@ -1,0 +1,14 @@
+# LisanCast web app
+User-agent: *
+Allow: /
+# Signed-in areas and per-session pages aren't useful in search results.
+Disallow: /account
+Disallow: /history
+Disallow: /library
+Disallow: /usage
+Disallow: /speak
+Disallow: /verify-email
+Disallow: /complete-profile
+Disallow: /request-speaking
+
+Sitemap: https://app.lisancast.com/sitemap.xml

@@ -10,3 +10,6 @@ node_modules/
 # Local database & build output
 server/data/*.db*
 dist/
+
+# Maintenance mode switch (a file on the server, created by deploy/maintenance.sh)
+deploy/maintenance-flag/

@@ -125,6 +125,11 @@ const OFFLINE: Record<string, string> = {
   ar: "تعذّر الوصول إلى الخادم. تحقق من اتصالك وحاول مرة أخرى.",
 };
 
+const MAINTENANCE: Record<string, string> = {
+  en: "LisanCast is under maintenance right now. Please try again in a little while.",
+  ar: "لسان كاست قيد الصيانة الآن. يرجى المحاولة مرة أخرى بعد قليل.",
+};
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
@@ -142,6 +147,8 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
+  // Maintenance mode (deploy/maintenance.sh): the server answers 503 with { maintenance: true }.
+  if (res.status === 503 && data.maintenance) throw new ApiError(MAINTENANCE[apiLanguage] ?? MAINTENANCE.en, 503);
   if (!res.ok) throw new ApiError(data.error ?? `Request failed (${res.status})`, res.status);
   return data as T;
 }

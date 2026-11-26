@@ -27,11 +27,15 @@ services:
     environment:
       API_DOMAIN: ${API_DOMAIN:?set API_DOMAIN in deploy/.env}
       APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN in deploy/.env}
+      APP_HOST: ${APP_DOMAIN}
       API_ALIASES: ${API_ALIASES:-}
       APP_ALIASES: ${APP_ALIASES:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ../mobile/dist:/srv/web:ro
+      # Maintenance mode (see Caddyfile): the page, and the on/off switch (deploy/maintenance.sh).
+      - ./maintenance:/srv/maintenance:ro
+      - ./maintenance-flag:/srv/maintenance-flag:ro
       - caddy-data:/data
       - caddy-config:/config
 

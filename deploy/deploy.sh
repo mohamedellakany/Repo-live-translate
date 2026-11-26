@@ -72,14 +72,17 @@ RSYNC_SSH="ssh -i $KEY -o StrictHostKeyChecking=accept-new"
 rsync -az --delete -e "$RSYNC_SSH" \
   --exclude node_modules --exclude dist --exclude data --exclude '.env*' --exclude .DS_Store \
   "$ROOT/server/" "$TARGET:$REMOTE_DIR/server/"
-rsync -az -e "$RSYNC_SSH" --exclude .DS_Store "$ROOT/deploy/" "$TARGET:$REMOTE_DIR/deploy/"
+# The maintenance switch lives only on the server (deploy/maintenance.sh); never overwrite it.
+rsync -az -e "$RSYNC_SSH" --exclude .DS_Store --exclude maintenance-flag "$ROOT/deploy/" "$TARGET:$REMOTE_DIR/deploy/"
+ssh "${SSH_OPTS[@]}" "$TARGET" "mkdir -p $REMOTE_DIR/deploy/maintenance-flag"
 rsync -az --delete -e "$RSYNC_SSH" "$ROOT/mobile/dist/" "$TARGET:$REMOTE_DIR/mobile/dist/"
 scp -q "${SSH_OPTS[@]}" "$PROD_ENV" "$TARGET:$REMOTE_DIR/server/.env"
 ssh "${SSH_OPTS[@]}" "$TARGET" "chmod 600 $REMOTE_DIR/server/.env"
 
 # ---- 4. Start ----
 echo "==> Building and starting containers on the VM"
-ssh "${SSH_OPTS[@]}" "$TARGET" "cd $REMOTE_DIR/deploy && docker compose up -d --build --remove-orphans && docker compose ps"
+# Reload Caddy too: a changed Caddyfile alone doesn't recreate its container.
+ssh "${SSH_OPTS[@]}" "$TARGET" "cd $REMOTE_DIR/deploy && docker compose up -d --build --remove-orphans && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile && docker compose ps"
 
 echo
 echo "Done. Give Caddy ~30 s to get HTTPS certificates, then check:"

@@ -4,19 +4,73 @@
 #  - API aliases are served exactly like API_DOMAIN, so phone apps built with an older address keep working.
 #  - App aliases (e.g. the bare domain, www, or an old address on printed QR codes) redirect to APP_DOMAIN,
 #    keeping the path, so /listen/<speaker> links still land on the right page.
+#
+# Maintenance mode: while the file /srv/maintenance-flag/on exists (deploy/maintenance.sh on|off), the website shows
+# deploy/maintenance/index.html and the API answers 503 "under maintenance". Both send 503 + Retry-After, which tells
+# search engines the pause is temporary. Checked on every request, so switching needs no restart.
+
+(maintenance_flag) {
+	@maintenance {
+		file {
+			root /srv/maintenance-flag
+			try_files /on
+		}
+	}
+}
 
 {$API_DOMAIN}{$API_ALIASES} {
 	encode gzip
-	reverse_proxy server:4000
+	import maintenance_flag
+
+	# The server address isn't a website: ask search engines not to crawl it.
+	handle /robots.txt {
+		header Content-Type "text/plain; charset=utf-8"
+		respond <<TXT
+			User-agent: *
+			Disallow: /
+			TXT 200
+	}
+	handle @maintenance {
+		# The web app runs on another domain: without these headers the browser hides this answer and the app
+		# shows "can't reach the server" instead of the maintenance message. Nothing private is in it.
+		header Access-Control-Allow-Origin "*"
+		header Access-Control-Allow-Headers "*"
+		header Access-Control-Allow-Methods "GET, POST, PATCH, DELETE, OPTIONS"
+		route {
+			@preflight method OPTIONS
+			respond @preflight 204
+			header Retry-After 3600
+			header Cache-Control no-store
+			header Content-Type "application/json; charset=utf-8"
+			respond `{"error":"LisanCast is under maintenance. Please try again soon.","maintenance":true}` 503
+		}
+	}
+	handle {
+		reverse_proxy {$API_UPSTREAM:server:4000}
+	}
 }
 
 {$APP_DOMAIN}{$APP_ALIASES} {
-	@alias not host {$APP_DOMAIN}
+	# APP_HOST is APP_DOMAIN without a scheme or port (docker-compose sets it; a local test sets "localhost").
+	@alias not host {$APP_HOST}
 	redir @alias https://{$APP_DOMAIN}{uri} permanent
 
-	root * /srv/web
 	encode gzip
-	header /_expo/* Cache-Control "public, max-age=31536000, immutable"
-	try_files {path} /index.html
-	file_server
+	import maintenance_flag
+
+	handle @maintenance {
+		root * /srv/maintenance
+		header Retry-After 3600
+		header Cache-Control no-store
+		rewrite * /index.html
+		file_server {
+			status 503
+		}
+	}
+	handle {
+		root * /srv/web
+		header /_expo/* Cache-Control "public, max-age=31536000, immutable"
+		try_files {path} /index.html
+		file_server
+	}
 }
