@@ -13,7 +13,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   name: "LisanCast",
   slug: "live-translate",
   scheme: "livetranslate",
-  version: "1.0.1",
+  version: "1.0.2",
   orientation: "portrait",
   icon: "./assets/icon.png",
   // The app sets light/dark itself at runtime (Appearance.setColorScheme) from the in-app theme switch.
