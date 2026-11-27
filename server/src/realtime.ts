@@ -3,7 +3,7 @@ import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 import { userFromToken } from "./auth.js";
 import { features } from "./config.js";
-import { library, sessions, users, type TranslationMode, type UserRow } from "./db.js";
+import { isExpired, library, sessions, users, type TranslationMode, type UserRow } from "./db.js";
 import { DEFAULT_SOURCE, DEFAULT_TARGET, isSourceLanguage, isTargetLanguage, listenLanguage, TARGET_LANGUAGES } from "./languages.js";
 import { summarizeEndedSession } from "./summary.js";
 import { settledPhraseEnd, toWords } from "./phrases.js";
@@ -464,7 +464,7 @@ function registerSpeakerHandlers(socket: Socket) {
   async function startBroadcast(raw: unknown, ack: Ack) {
     // Re-read the user: verification status may have changed since this socket connected.
     const user = socket.data.user ? await users.byId((socket.data.user as UserRow).id) : undefined;
-    if (!user) return ack({ ok: false, error: "unauthorized" });
+    if (!user || isExpired(user)) return ack({ ok: false, error: "unauthorized" });
     if (!user.email_verified) return ack({ ok: false, error: "email_unverified" });
     if (!user.can_speak) return ack({ ok: false, error: "speaking_not_allowed" });
     socket.data.user = user;

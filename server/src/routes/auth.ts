@@ -4,7 +4,7 @@ import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { requireAuth, signApproveToken, signSignupToken, signToken, verifySignupToken } from "../auth.js";
 import { adminEmail, config } from "../config.js";
-import { toPublicUser, users, type UserRow } from "../db.js";
+import { isExpired, toPublicUser, users, type UserRow } from "../db.js";
 import { verifyGoogleIdToken } from "../google.js";
 import { sendCodeEmail, sendSpeakingRequestEmail } from "../mailer.js";
 import { CODE_ERRORS, issueCode, verifyCode } from "../otp.js";
@@ -42,8 +42,11 @@ const firstIssue = (e: z.ZodError) => e.issues[0]?.message ?? "Invalid request";
 /** Two sign-ups racing for the same username/email: the database's unique index rejects the second. */
 const isDuplicate = (err: unknown) => (err as { code?: string }).code === "23505";
 const TAKEN = "That username or email is already registered";
+const EXPIRED = "This account has expired. Contact the LisanCast team to reactivate it.";
 const session = (res: Response, user: UserRow, status = 200) =>
-  res.status(status).json({ token: signToken(user.id), user: toPublicUser(user) });
+  isExpired(user)
+    ? res.status(403).json({ error: EXPIRED, expired: true })
+    : res.status(status).json({ token: signToken(user.id), user: toPublicUser(user) });
 
 /** Issue + email a verification code. Failures to send are logged, not fatal, so sign-up still succeeds. */
 async function sendVerification(user: UserRow) {

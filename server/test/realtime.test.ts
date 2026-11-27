@@ -556,3 +556,52 @@ test("the Usage page is only for the account owner", async () => {
   assert.equal((await call("GET", "/api/admin/usage", undefined, other.body.token)).status, 403);
   assert.equal((await call("GET", "/api/admin/usage")).status, 401);
 });
+
+test("admin creates ready-to-use speaker accounts with an expiry date", async () => {
+  const { users } = await import("../src/db.js");
+  const { signToken } = await import("../src/auth.js");
+  const boss = await users.byUsername("boss") ?? (await users.create({ username: "boss", email: "boss@x.com", displayName: "B", passwordHash: null, emailVerified: true }));
+  const adminToken = signToken(boss.id);
+  const someone = await users.create({ username: "notadmin", email: "notadmin@x.com", displayName: "N", passwordHash: null, emailVerified: true });
+  const inOneHour = new Date(Date.now() + 3600_000).toISOString();
+
+  // Only the admin.
+  assert.equal((await post("/api/admin/speakers", { username: "guest1", displayName: "G", email: "g1@x.com", expiresAt: null }, signToken(someone.id))).status, 403);
+  // No expiry in the past.
+  assert.equal((await post("/api/admin/speakers", { username: "guest1", displayName: "G", email: "g1@x.com", expiresAt: "2020-01-01T00:00:00Z" }, adminToken)).status, 400);
+
+  const created = await post("/api/admin/speakers", { username: "Guest1", displayName: "Guest Speaker", email: "g1@x.com", expiresAt: inOneHour }, adminToken);
+  assert.equal(created.status, 201);
+  assert.equal(created.body.speaker.username, "guest1");
+  assert.equal(created.body.speaker.canSpeak, true);
+  assert.equal(created.body.speaker.emailVerified, true);
+  assert.equal(created.body.password.length, 12);
+
+  // Ready immediately: sign in and go live, no email code needed.
+  const login = await post("/api/auth/login", { login: "guest1", password: created.body.password });
+  assert.equal(login.status, 200);
+  const s = open(login.body.token);
+  assert.equal((await emitAck(s, "speaker:start", { sourceLang: "ar" })).ok, true);
+  await emitAck(s, "speaker:stop", {});
+
+  // Listed on the admin page.
+  const list = (await call("GET", "/api/admin/speakers", undefined, adminToken)).body.speakers;
+  assert.ok(list.some((x: { username: string; expired: boolean }) => x.username === "guest1" && !x.expired));
+
+  // Expired: signed out everywhere and can't sign in or go live.
+  await users.setExpiry(created.body.speaker.id, new Date(Date.now() - 1000).toISOString());
+  assert.equal((await call("GET", "/api/auth/me", undefined, login.body.token)).status, 401);
+  const again = await post("/api/auth/login", { login: "guest1", password: created.body.password });
+  assert.equal(again.status, 403);
+  assert.equal(again.body.expired, true);
+  assert.equal((await emitAck(open(login.body.token), "speaker:start", { sourceLang: "ar" })).ok, false);
+
+  // The admin extends it (or sets "never"): it works again.
+  const extended = await call("PATCH", `/api/admin/speakers/${created.body.speaker.id}`, { expiresAt: null }, adminToken);
+  assert.equal(extended.body.speaker.expiresAt, null);
+  assert.equal((await post("/api/auth/login", { login: "guest1", password: created.body.password })).status, 200);
+  // Speaking can be turned off and on.
+  assert.equal((await call("PATCH", `/api/admin/speakers/${created.body.speaker.id}`, { canSpeak: false }, adminToken)).body.speaker.canSpeak, false);
+  // Admin accounts can't be changed here (no lock-out by mistake).
+  assert.equal((await call("PATCH", `/api/admin/speakers/${boss.id}`, { canSpeak: false }, adminToken)).status, 400);
+});

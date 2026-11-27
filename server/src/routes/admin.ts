@@ -5,7 +5,10 @@ import { providerChain } from "../translation/caps.js";
 import { monthChars, usageHistory, usageMonth } from "../translation/usage.js";
 import { translator } from "../translation/index.js";
 import { adminUsernames, config, features } from "../config.js";
-import { users } from "../db.js";
+import { randomInt } from "node:crypto";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
+import { isExpired, toPublicUser, users, type UserRow } from "../db.js";
 import { grantSpeaking } from "../speaking.js";
 
 /*
@@ -14,7 +17,7 @@ import { grantSpeaking } from "../speaking.js";
  * providers sometimes open links automatically to scan them; access is granted by the button (POST).
  */
 export const adminRouter = Router();
-adminRouter.use(rateLimit({ windowMs: 15 * 60_000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false }));
+adminRouter.use(rateLimit({ windowMs: 15 * 60_000, limit: 300, standardHeaders: "draft-8", legacyHeaders: false }));
 
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[ch]!);
@@ -85,4 +88,76 @@ adminRouter.get("/usage", requireAuth, async (req, res) => {
     })),
     history,
   });
+});
+
+/* ------------------------------ speaker accounts ------------------------------ */
+// Admin page "Manage speakers": create ready-to-use speaker accounts (optionally expiring), list them,
+// change expiry, and turn speaking on or off. Admin only (ADMIN_USERNAMES).
+
+const requireAdmin: import("express").RequestHandler = async (req, res, next) => {
+  if (!adminUsernames.has(req.user!.username.toLowerCase())) return res.status(403).json({ error: "Only the account owner can see usage" });
+  next();
+};
+
+const managedView = (u: UserRow) => ({
+  ...toPublicUser(u),
+  expired: isExpired(u),
+  createdByAdmin: !!u.created_by_admin,
+  speakRequestNote: u.can_speak ? null : u.speak_request_note,
+});
+
+/** Easy to read and type: no 0/O, 1/l/I. */
+function generatePassword(length = 12) {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length }, () => chars[randomInt(chars.length)]).join("");
+}
+
+const expirySchema = z
+  .string()
+  .datetime({ offset: true })
+  .nullable()
+  .refine((v) => v === null || Date.parse(v) > Date.now(), "Choose an expiry date in the future");
+
+adminRouter.get("/speakers", requireAuth, requireAdmin, async (_req, res) => {
+  res.json({ speakers: (await users.managed()).map(managedView) });
+});
+
+adminRouter.post("/speakers", requireAuth, requireAdmin, async (req, res) => {
+  const parsed = z
+    .object({
+      username: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^[a-z0-9_]{3,20}$/, "Username must be 3-20 characters: letters, numbers or underscore"),
+      displayName: z.string().trim().min(1, "Display name is required").max(60),
+      email: z.email("Enter a valid email").trim().toLowerCase(),
+      password: z.string().min(8, "Password must be at least 8 characters").max(200).optional(),
+      expiresAt: expirySchema,
+    })
+    .safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+  const { username, displayName, email, expiresAt } = parsed.data;
+  if (await users.byUsername(username)) return res.status(409).json({ error: "That username is taken" });
+  if (await users.byEmail(email)) return res.status(409).json({ error: "An account with this email already exists" });
+  const password = parsed.data.password ?? generatePassword();
+  const user = await users.createByAdmin({ username, displayName, email, passwordHash: await bcrypt.hash(password, 10), expiresAt });
+  // The password is shown once, so the admin can pass it on; it's stored only as a hash.
+  res.status(201).json({ speaker: managedView(user), password });
+});
+
+adminRouter.patch("/speakers/:id", requireAuth, requireAdmin, async (req, res) => {
+  const parsed = z.object({ canSpeak: z.boolean().optional(), expiresAt: expirySchema.optional() }).safeParse(req.body ?? {});
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
+  const target = await users.byId(String(req.params.id));
+  if (!target) return res.status(404).json({ error: "Account not found" });
+  // Never lock an admin account out by mistake.
+  if (adminUsernames.has(target.username.toLowerCase())) return res.status(400).json({ error: "Admin accounts can't be changed here" });
+  if (parsed.data.expiresAt !== undefined) await users.setExpiry(target.id, parsed.data.expiresAt);
+  if (parsed.data.canSpeak !== undefined) {
+    // Turning speaking on also emails them (and clears a pending request), like approving a request.
+    if (parsed.data.canSpeak && !target.can_speak) await grantSpeaking(target);
+    else await users.setCanSpeak(target.id, parsed.data.canSpeak);
+  }
+  res.json({ speaker: managedView((await users.byId(target.id))!) });
 });

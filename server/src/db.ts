@@ -136,6 +136,15 @@ export async function migrate() {
 }
 await migrate();
 
+/*
+ * Add-only schema steps that don't depend on migration order (safe to run on every start). Used for columns that
+ * must work whichever other numbered migrations a database has, e.g. while features are released separately.
+ */
+await pool.query(`
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by_admin BOOLEAN NOT NULL DEFAULT FALSE;
+`);
+
 /* --------------------------------- types --------------------------------- */
 export interface UserRow {
   id: string;
@@ -147,6 +156,9 @@ export interface UserRow {
   email_verified: boolean;
   can_speak: boolean;
   speak_requested_at: string | null;
+  /** The account stops working after this moment (admin-created accounts). null = never. */
+  expires_at: string | null;
+  created_by_admin: boolean;
   speak_request_note: string | null;
   created_at: string;
 }
@@ -162,6 +174,8 @@ export interface PublicUser {
   canSpeak: boolean;
   /** May open the private Usage page (ADMIN_USERNAMES). */
   isAdmin: boolean;
+  /** When the account stops working (set by an admin), or null. */
+  expiresAt: string | null;
   /** When the user asked for speaking access (null if they haven't, or once it's granted). */
   speakRequestedAt: string | null;
   createdAt: string;
@@ -205,6 +219,9 @@ export interface Segment {
   createdAt: string;
 }
 
+/** The account's expiry date has passed: it can't sign in or be used anymore. */
+export const isExpired = (u: Pick<UserRow, "expires_at">) => !!u.expires_at && Date.parse(u.expires_at) <= Date.now();
+
 export const toPublicUser = (u: UserRow): PublicUser => ({
   id: u.id,
   username: u.username,
@@ -215,6 +232,7 @@ export const toPublicUser = (u: UserRow): PublicUser => ({
   googleLinked: !!u.google_sub,
   canSpeak: !!u.can_speak,
   isAdmin: adminUsernames.has(u.username.toLowerCase()),
+  expiresAt: u.expires_at,
   speakRequestedAt: u.can_speak ? null : u.speak_requested_at,
   createdAt: u.created_at,
 });
@@ -255,6 +273,20 @@ export const users = {
   requestSpeaking: (id: string, note: string) =>
     run("UPDATE users SET speak_requested_at = now(), speak_request_note = $1 WHERE id = $2", [note, id]),
   speakers: () => all<UserRow>("SELECT * FROM users WHERE can_speak ORDER BY created_at"),
+  /** Admin page: everyone who can speak, has asked to, or was created by an admin (newest first). */
+  managed: () =>
+    all<UserRow>(
+      `SELECT * FROM users WHERE can_speak OR created_by_admin OR speak_requested_at IS NOT NULL
+       ORDER BY created_at DESC LIMIT 500`,
+    ),
+  /** An admin-created account: ready to use (email counted as verified), speaking on, optional expiry. */
+  createByAdmin: async (input: { username: string; email: string; displayName: string; passwordHash: string; expiresAt: string | null }) =>
+    (await one<UserRow>(
+      `INSERT INTO users (id, username, email, display_name, password_hash, email_verified, can_speak, created_by_admin, expires_at)
+       VALUES ($1, $2, $3, $4, $5, TRUE, TRUE, TRUE, $6) RETURNING *`,
+      [randomUUID(), input.username, input.email, input.displayName, input.passwordHash, input.expiresAt],
+    ))!,
+  setExpiry: (id: string, expiresAt: string | null) => run("UPDATE users SET expires_at = $1 WHERE id = $2", [expiresAt, id]),
   speakRequests: () => all<UserRow>("SELECT * FROM users WHERE NOT can_speak AND speak_requested_at IS NOT NULL ORDER BY speak_requested_at"),
   linkGoogle: (id: string, sub: string) => run("UPDATE users SET google_sub = $1 WHERE id = $2", [sub, id]),
   remove: (id: string) => run("DELETE FROM users WHERE id = $1", [id]),

@@ -83,7 +83,15 @@ export default function Account() {
 
       {/* Admin only (ADMIN_USERNAMES): translation usage at a glance. */}
       {user.isAdmin && (
-        <Button title={t("usage.title")} icon="stats-chart-outline" onPress={() => router.push("/usage")} />
+        <View style={{ gap: spacing.sm }}>
+          <Button title={t("usage.title")} icon="stats-chart-outline" onPress={() => router.push("/usage")} />
+          <Button
+            title={lang === "ar" ? "إدارة المتحدثين" : "Manage speakers"}
+            icon="people-outline"
+            variant="secondary"
+            onPress={() => router.push("/admin")}
+          />
+        </View>
       )}
 
       <Card>

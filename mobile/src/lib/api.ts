@@ -130,7 +130,7 @@ const MAINTENANCE: Record<string, string> = {
   ar: "لسان كاست قيد الصيانة الآن. يرجى المحاولة مرة أخرى بعد قليل.",
 };
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${API_URL}${path}`, {

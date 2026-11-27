@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import type { NextFunction, Request, Response } from "express";
 import { config } from "./config.js";
-import { users, type UserRow } from "./db.js";
+import { isExpired, users, type UserRow } from "./db.js";
 import type { GoogleProfile } from "./google.js";
 
 interface TokenPayload {
@@ -55,7 +55,9 @@ export async function userFromToken(token: string | undefined | null): Promise<U
     return null;
   }
   if (payload.typ) return null; // signup tokens can't be used as sessions
-  return (await users.byId(payload.sub)) ?? null;
+  const user = (await users.byId(payload.sub)) ?? null;
+  // An admin-set expiry date has passed: the account no longer works (it's signed out everywhere).
+  return user && !isExpired(user) ? user : null;
 }
 
 declare global {
