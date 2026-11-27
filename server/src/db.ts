@@ -106,6 +106,14 @@ const MIGRATIONS: string[] = [
   ALTER TABLE sessions ADD COLUMN review_status TEXT NOT NULL DEFAULT 'published';
   ALTER TABLE sessions ADD COLUMN published_at TIMESTAMPTZ;
   `,
+  // 6: Sign in with Apple. apple_sub is Apple's stable user ID. The refresh token and the client ID it was issued
+  // to (bundle ID for the iPhone app, Services ID for the web) are only kept so the Apple connection can be revoked
+  // when the account is deleted (an App Store requirement).
+  `
+  ALTER TABLE users ADD COLUMN apple_sub TEXT UNIQUE;
+  ALTER TABLE users ADD COLUMN apple_refresh_token TEXT;
+  ALTER TABLE users ADD COLUMN apple_client_id TEXT;
+  `,
 ];
 
 export async function migrate() {
@@ -153,6 +161,10 @@ export interface UserRow {
   display_name: string;
   password_hash: string | null;
   google_sub: string | null;
+  apple_sub: string | null;
+  /** Never sent to clients (see toPublicUser). */
+  apple_refresh_token: string | null;
+  apple_client_id: string | null;
   email_verified: boolean;
   can_speak: boolean;
   speak_requested_at: string | null;
@@ -170,6 +182,7 @@ export interface PublicUser {
   emailVerified: boolean;
   hasPassword: boolean;
   googleLinked: boolean;
+  appleLinked: boolean;
   /** Allowed to broadcast (granted with `npm run speaker -- <email> on`). */
   canSpeak: boolean;
   /** May open the private Usage page (ADMIN_USERNAMES). */
@@ -230,6 +243,7 @@ export const toPublicUser = (u: UserRow): PublicUser => ({
   emailVerified: !!u.email_verified,
   hasPassword: !!u.password_hash,
   googleLinked: !!u.google_sub,
+  appleLinked: !!u.apple_sub,
   canSpeak: !!u.can_speak,
   isAdmin: adminUsernames.has(u.username.toLowerCase()),
   expiresAt: u.expires_at,
@@ -244,18 +258,33 @@ export const users = {
   byEmail: (email: string) => one<UserRow>("SELECT * FROM users WHERE email = $1", [email]),
   byLogin: (login: string) => one<UserRow>("SELECT * FROM users WHERE username = $1 OR email = $1", [login]),
   byGoogleSub: (sub: string) => one<UserRow>("SELECT * FROM users WHERE google_sub = $1", [sub]),
+  byAppleSub: (sub: string) => one<UserRow>("SELECT * FROM users WHERE apple_sub = $1", [sub]),
   async create(input: {
     username: string;
     email: string;
     displayName: string;
     passwordHash: string | null;
     googleSub?: string | null;
+    appleSub?: string | null;
+    appleRefreshToken?: string | null;
+    appleClientId?: string | null;
     emailVerified?: boolean;
   }) {
     return (await one<UserRow>(
-      `INSERT INTO users (id, username, email, display_name, password_hash, google_sub, email_verified)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [randomUUID(), input.username, input.email, input.displayName, input.passwordHash, input.googleSub ?? null, !!input.emailVerified],
+      `INSERT INTO users (id, username, email, display_name, password_hash, google_sub, apple_sub, apple_refresh_token, apple_client_id, email_verified)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [
+        randomUUID(),
+        input.username,
+        input.email,
+        input.displayName,
+        input.passwordHash,
+        input.googleSub ?? null,
+        input.appleSub ?? null,
+        input.appleRefreshToken ?? null,
+        input.appleClientId ?? null,
+        !!input.emailVerified,
+      ],
     ))!;
   },
   updateDisplayName: (id: string, displayName: string) => run("UPDATE users SET display_name = $1 WHERE id = $2", [displayName, id]),
@@ -289,6 +318,13 @@ export const users = {
   setExpiry: (id: string, expiresAt: string | null) => run("UPDATE users SET expires_at = $1 WHERE id = $2", [expiresAt, id]),
   speakRequests: () => all<UserRow>("SELECT * FROM users WHERE NOT can_speak AND speak_requested_at IS NOT NULL ORDER BY speak_requested_at"),
   linkGoogle: (id: string, sub: string) => run("UPDATE users SET google_sub = $1 WHERE id = $2", [sub, id]),
+  linkApple: (id: string, sub: string, refreshToken: string | null, clientId: string) =>
+    run(
+      "UPDATE users SET apple_sub = $1, apple_refresh_token = COALESCE($2, apple_refresh_token), apple_client_id = $3 WHERE id = $4",
+      [sub, refreshToken, clientId, id],
+    ),
+  setAppleRefreshToken: (id: string, refreshToken: string, clientId: string) =>
+    run("UPDATE users SET apple_refresh_token = $1, apple_client_id = $2 WHERE id = $3", [refreshToken, clientId, id]),
   remove: (id: string) => run("DELETE FROM users WHERE id = $1", [id]),
 };
 

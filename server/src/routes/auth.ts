@@ -2,7 +2,16 @@ import { Router, type Response } from "express";
 import bcrypt from "bcryptjs";
 import rateLimit from "express-rate-limit";
 import { z } from "zod";
-import { requireAuth, signApproveToken, signSignupToken, signToken, verifySignupToken } from "../auth.js";
+import { exchangeAppleAuthorizationCode, isPrivateRelay, revokeAppleRefreshToken, verifyAppleIdentityToken } from "../apple.js";
+import {
+  requireAuth,
+  signAppleSignupToken,
+  signApproveToken,
+  signSignupToken,
+  signToken,
+  verifyAppleSignupToken,
+  verifySignupToken,
+} from "../auth.js";
 import { adminEmail, config } from "../config.js";
 import { isExpired, toPublicUser, users, type UserRow } from "../db.js";
 import { verifyGoogleIdToken } from "../google.js";
@@ -90,7 +99,12 @@ authRouter.post("/login", authLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
   const user = await users.byLogin(parsed.data.login.replace(/^@/, "").toLowerCase());
   if (user && !user.password_hash) {
-    return res.status(400).json({ error: "This account uses Google sign-in. Continue with Google, or reset your password to add one." });
+    return res.status(400).json({
+      error:
+        user.apple_sub && !user.google_sub
+          ? "This account uses Sign in with Apple. Continue with Apple, or reset your password to add one."
+          : "This account uses Google sign-in. Continue with Google, or reset your password to add one.",
+    });
   }
   const valid = user?.password_hash && (await bcrypt.compare(parsed.data.password, user.password_hash));
   if (!user || !valid) return res.status(401).json({ error: "Incorrect username/email or password" });
@@ -163,6 +177,102 @@ authRouter.post("/google/complete", authLimiter, async (req, res) => {
     throw err;
   }
   await sendVerification(user);
+  session(res, user, 201);
+});
+
+/* --------------------------------- Apple --------------------------------- */
+
+/**
+ * Same shape as Google sign-in: existing accounts get a session; a first sign-in returns a signup token and the
+ * app asks for a speaker ID. Differences: Apple only shares the user's name with the app (not the token), so the
+ * app passes it along; the email may be a private relay address; and Apple has already verified the email, so no
+ * emailed code is needed (a code sent to a relay address would not arrive unless the sender is registered with Apple).
+ */
+authRouter.post("/apple", authLimiter, async (req, res) => {
+  const parsed = z
+    .object({
+      identityToken: z.string().min(10),
+      authorizationCode: z.string().min(1).nullish(),
+      // Web only: the page address the sign-in ran on. Apple needs it to exchange the code.
+      redirectUri: z.url().max(300).nullish(),
+      name: z.string().trim().max(60).nullish(),
+    })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Missing Apple credential" });
+
+  let a;
+  try {
+    a = await verifyAppleIdentityToken(parsed.data.identityToken);
+  } catch (err) {
+    console.warn("[apple] token rejected:", (err as Error).message);
+    return res.status(401).json({ error: "Apple sign-in failed. Please try again." });
+  }
+  // Kept only so the Apple connection can be revoked if the account is deleted (null when not configured).
+  const refreshToken = parsed.data.authorizationCode
+    ? await exchangeAppleAuthorizationCode(parsed.data.authorizationCode, a.audience, parsed.data.redirectUri ?? undefined)
+    : null;
+
+  const linked = await users.byAppleSub(a.sub);
+  if (linked) {
+    if (refreshToken) await users.setAppleRefreshToken(linked.id, refreshToken, a.audience);
+    return session(res, linked);
+  }
+
+  if (!a.email) {
+    return res.status(400).json({
+      error:
+        "Apple didn't share an email address. In Settings > Apple ID > Sign-In & Security > Sign in with Apple, stop using Apple for LisanCast, then try again.",
+    });
+  }
+  const byEmail = await users.byEmail(a.email);
+  if (byEmail) {
+    if (!a.emailVerified) return res.status(409).json({ error: "An account with this email already exists. Sign in with your password." });
+    await users.linkApple(byEmail.id, a.sub, refreshToken, a.audience);
+    return session(res, (await users.byId(byEmail.id))!);
+  }
+
+  // New user: they still need to choose a speaker ID. A relay address says nothing about who they are.
+  const relay = isPrivateRelay(a.email);
+  const displayName = parsed.data.name || (relay ? "" : a.email.split("@")[0]);
+  const suggestion = relay ? "" : a.email.split("@")[0].toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20);
+  const suggestionFree = suggestion.length >= 3 && !(await users.byUsername(suggestion));
+  res.json({
+    needsProfile: true,
+    signupToken: signAppleSignupToken({ ...a, name: displayName, ...(refreshToken ? { refreshToken } : {}) }),
+    profile: { email: a.email, displayName, suggestedUsername: suggestionFree ? suggestion : "" },
+  });
+});
+
+authRouter.post("/apple/complete", authLimiter, async (req, res) => {
+  const parsed = z
+    .object({ signupToken: z.string(), username: usernameSchema, displayName: displayNameSchema })
+    .safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: firstIssue(parsed.error) });
+  const a = verifyAppleSignupToken(parsed.data.signupToken);
+  if (!a) return res.status(401).json({ error: "Your Apple sign-in expired. Please continue with Apple again." });
+  if ((await users.byAppleSub(a.sub)) || (await users.byEmail(a.email))) {
+    return res.status(409).json({ error: "An account already exists for this Apple account. Sign in instead." });
+  }
+  if (isReservedFor(parsed.data.username, a.email)) return res.status(400).json({ error: RESERVED_ERROR });
+  if (await users.byUsername(parsed.data.username)) return res.status(409).json({ error: "That username is taken" });
+
+  let user: UserRow;
+  try {
+    user = await users.create({
+      username: parsed.data.username,
+      email: a.email,
+      displayName: parsed.data.displayName,
+      passwordHash: null,
+      appleSub: a.sub,
+      appleRefreshToken: a.refreshToken ?? null,
+      appleClientId: a.audience,
+      emailVerified: a.emailVerified,
+    });
+  } catch (err) {
+    if (isDuplicate(err)) return res.status(409).json({ error: TAKEN });
+    throw err;
+  }
+  if (!user.email_verified) await sendVerification(user);
   session(res, user, 201);
 });
 
@@ -274,6 +384,12 @@ authRouter.delete("/me", requireAuth, authLimiter, async (req, res) => {
     return res.status(400).json({ error: "Type your username to confirm" });
   }
   await forceEndSpeaker(user.id);
+  // Apple requires apps that offer Sign in with Apple to disconnect the user's Apple ID when the account is deleted.
+  if (user.apple_refresh_token && user.apple_client_id) {
+    await revokeAppleRefreshToken(user.apple_refresh_token, user.apple_client_id).catch((err) =>
+      console.warn("[apple] couldn't revoke the token for a deleted account:", (err as Error).message),
+    );
+  }
   await users.remove(user.id);
   res.status(204).end();
 });

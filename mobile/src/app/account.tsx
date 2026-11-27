@@ -113,6 +113,7 @@ export default function Account() {
       <Card style={{ gap: spacing.sm }}>
         <Text style={styles.section}>{t("account.security")}</Text>
         {user.googleLinked && <Text style={styles.meta}>✓ {t("account.googleLinked")}</Text>}
+        {user.appleLinked && <Text style={styles.meta}>✓ {t("account.appleLinked")}</Text>}
         <Button
           title={user.hasPassword ? t("account.changePassword") : t("account.addPassword")}
           icon="key-outline"
