@@ -1,8 +1,6 @@
 import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
-import { generateKeyPairSync } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import jwt from "jsonwebtoken";
 import pg from "pg";
 import { io as connect, type Socket } from "socket.io-client";
 
@@ -14,8 +12,6 @@ process.env.LISTEN_LANGUAGES = "en,fr";
 // Most tests exercise "Live" (word-by-word) translation, so it is switched on here; see the test that switches it off.
 process.env.LIVE_MODE_ENABLED = "true";
 process.env.ADMIN_USERNAMES = "boss";
-// The web's Sign in with Apple "Services ID" (tokens from the website carry this as their audience).
-process.env.APPLE_WEB_CLIENT_ID = "com.lisancast.web";
 // The suite signs up many accounts from one address; the live default (30 per 15 minutes) would block it.
 process.env.AUTH_RATE_LIMIT = "1000";
 // A throwaway PostgreSQL database, wiped before every run. Never point this at real data.
@@ -33,24 +29,6 @@ const { createApp } = await import("../src/app.js");
 const { attachRealtime } = await import("../src/realtime.js");
 const { devOutbox, devMessages } = await import("../src/mailer.js");
 const { signSignupToken } = await import("../src/auth.js");
-
-// Sign in with Apple checks tokens against Apple's published keys. Serve a test key for that one address
-// (every other request, including the ones to this test server, goes through untouched).
-const appleKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
-const realFetch = globalThis.fetch;
-globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
-  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-  if (url === "https://appleid.apple.com/auth/keys") {
-    return Response.json({ keys: [{ ...appleKeys.publicKey.export({ format: "jwk" }), kid: "test-key", alg: "RS256", use: "sig" }] });
-  }
-  return realFetch(input, init);
-}) as typeof fetch;
-const appleToken = (claims: Record<string, unknown>, key = appleKeys.privateKey) =>
-  jwt.sign({ iss: "https://appleid.apple.com", aud: "com.ellakany.livetranslate", ...claims }, key, {
-    algorithm: "RS256",
-    keyid: "test-key",
-    expiresIn: "10m",
-  });
 
 let base = "";
 const httpServer = createServer(createApp());
@@ -170,104 +148,6 @@ test("Google sign-up completes with a speaker ID and still needs OTP", async () 
   assert.equal((await call("GET", "/api/auth/me", undefined, signupToken)).status, 401);
   // Google-only accounts can't password-login.
   assert.equal((await post("/api/auth/login", { login: "gee", password: "whatever1" })).status, 400);
-});
-
-test("Sign in with Apple: a first sign-in picks a speaker ID and needs no emailed code", async () => {
-  assert.equal((await call("GET", "/api/config")).body.features.appleSignIn, true);
-  assert.equal((await post("/api/auth/apple", {})).status, 400);
-  assert.equal((await post("/api/auth/apple", { identityToken: "x".repeat(20) })).status, 401); // not a token
-  // A token signed with anyone's key but Apple's is refused.
-  const forged = appleToken({ sub: "001.forged", email: "forged@example.com", email_verified: "true" }, generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey);
-  assert.equal((await post("/api/auth/apple", { identityToken: forged })).status, 401);
-
-  const identityToken = appleToken({ sub: "001.apple-1", email: "appleuser@example.com", email_verified: "true" });
-  const first = await post("/api/auth/apple", { identityToken, authorizationCode: null, name: "Apple User" });
-  assert.equal(first.status, 200);
-  assert.equal(first.body.needsProfile, true);
-  assert.deepEqual(first.body.profile, { email: "appleuser@example.com", displayName: "Apple User", suggestedUsername: "appleuser" });
-
-  const done = await post("/api/auth/apple/complete", { signupToken: first.body.signupToken, username: "applie", displayName: "Apple User" });
-  assert.equal(done.status, 201);
-  assert.equal(done.body.user.appleLinked, true);
-  assert.equal(done.body.user.googleLinked, false);
-  assert.equal(done.body.user.hasPassword, false);
-  assert.equal(done.body.user.emailVerified, true); // Apple already verified it
-  assert.equal(lastCode("appleuser@example.com", "verify_email"), undefined);
-  assert.equal(JSON.stringify(done.body).includes("refresh"), false);
-  // The same signup token can't create a second account, and isn't a session token.
-  assert.equal((await post("/api/auth/apple/complete", { signupToken: first.body.signupToken, username: "applie2", displayName: "A" })).status, 409);
-  assert.equal((await call("GET", "/api/auth/me", undefined, first.body.signupToken)).status, 401);
-  // A Google signup token can't be used on the Apple endpoint.
-  const g = signSignupToken({ sub: "g-x", email: "gx@gmail.com", emailVerified: true, name: "G" });
-  assert.equal((await post("/api/auth/apple/complete", { signupToken: g, username: "notapple", displayName: "G" })).status, 401);
-
-  // Next time it's a plain sign-in.
-  const again = await post("/api/auth/apple", { identityToken });
-  assert.equal(again.status, 200);
-  assert.equal(again.body.user.username, "applie");
-  assert.ok(again.body.token);
-  // Apple-only accounts can't password-login, and are told how to sign in.
-  const pw = await post("/api/auth/login", { login: "applie", password: "whatever1" });
-  assert.equal(pw.status, 400);
-  assert.match(pw.body.error, /Sign in with Apple/);
-
-  // Account deletion works for Apple accounts (no Apple key configured here, so there is nothing to revoke).
-  assert.equal((await call("DELETE", "/api/auth/me", { confirmUsername: "applie" }, again.body.token)).status, 204);
-  assert.equal((await post("/api/auth/apple", { identityToken })).body.needsProfile, true);
-});
-
-test("Sign in with Apple on the web: the Services ID is advertised and its tokens are accepted", async () => {
-  const cfg = (await call("GET", "/api/config")).body;
-  assert.equal(cfg.appleWebClientId, "com.lisancast.web");
-  assert.equal(cfg.features.appleWebSignIn, true);
-
-  // The website's sign-in sends the code and the page address it ran on.
-  const webToken = appleToken({ sub: "001.web-1", email: "webuser@example.com", email_verified: "true", aud: "com.lisancast.web" });
-  const first = await post("/api/auth/apple", {
-    identityToken: webToken,
-    authorizationCode: "code-from-web",
-    redirectUri: "https://app.lisancast.com",
-    name: "Web User",
-  });
-  assert.equal(first.status, 200);
-  assert.equal(first.body.needsProfile, true);
-  assert.equal(first.body.profile.email, "webuser@example.com");
-  const done = await post("/api/auth/apple/complete", { signupToken: first.body.signupToken, username: "webuser", displayName: "Web User" });
-  assert.equal(done.status, 201);
-  assert.equal(done.body.user.appleLinked, true);
-  // Signing in again on the website finds the same account.
-  assert.equal((await post("/api/auth/apple", { identityToken: webToken })).body.user.username, "webuser");
-
-  // A token for a different app is still refused.
-  assert.equal((await post("/api/auth/apple", { identityToken: appleToken({ sub: "001.other", aud: "com.someone.else" }) })).status, 401);
-  // A page address that isn't a web address is refused.
-  assert.equal((await post("/api/auth/apple", { identityToken: webToken, redirectUri: "not a url" })).status, 400);
-});
-
-test("Sign in with Apple: private relay emails, missing emails and linking to an existing account", async () => {
-  // "Hide My Email": no display name or username is guessed from the relay address.
-  const relay = await post("/api/auth/apple", {
-    identityToken: appleToken({ sub: "001.relay", email: "x7k2m9@privaterelay.appleid.com", email_verified: true, is_private_email: true }),
-  });
-  assert.deepEqual(relay.body.profile, { email: "x7k2m9@privaterelay.appleid.com", displayName: "", suggestedUsername: "" });
-
-  // A new Apple user whose token has no email can't be given an account.
-  assert.equal((await post("/api/auth/apple", { identityToken: appleToken({ sub: "001.noemail" }) })).status, 400);
-
-  // Same verified email as a password account: Apple is linked to it, with no duplicate account.
-  const reg = await post("/api/auth/register", { username: "linkme", email: "linkme@example.com", displayName: "Link", password: "password123" });
-  const linked = await post("/api/auth/apple", { identityToken: appleToken({ sub: "001.link", email: "linkme@example.com", email_verified: "true" }) });
-  assert.equal(linked.status, 200);
-  assert.equal(linked.body.user.id, reg.body.user.id);
-  assert.equal(linked.body.user.appleLinked, true);
-  assert.equal(linked.body.user.hasPassword, true);
-  assert.equal((await post("/api/auth/login", { login: "linkme", password: "password123" })).status, 200);
-
-  // An Apple email that Apple hasn't verified is never linked to someone else's account.
-  const other = await post("/api/auth/register", { username: "notlinked", email: "notlinked@example.com", displayName: "N", password: "password123" });
-  assert.equal(other.status, 201);
-  const unverified = await post("/api/auth/apple", { identityToken: appleToken({ sub: "001.unverified", email: "notlinked@example.com", email_verified: "false" }) });
-  assert.equal(unverified.status, 409);
 });
 
 test("password reset by emailed code", async () => {

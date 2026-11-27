@@ -21,14 +21,6 @@ const AR: Record<string, string> = {
   "An account with this email already exists. Sign in with your password.": "يوجد حساب بهذا البريد الإلكتروني. سجّل الدخول بكلمة المرور.",
   "Your Google sign-in expired. Please continue with Google again.": "انتهت صلاحية تسجيل الدخول عبر Google. تابع باستخدام Google مرة أخرى.",
   "An account already exists for this Google account. Sign in instead.": "يوجد حساب مرتبط بحساب Google هذا. سجّل الدخول بدلاً من ذلك.",
-  "This account uses Sign in with Apple. Continue with Apple, or reset your password to add one.":
-    "هذا الحساب يستخدم تسجيل الدخول عبر Apple. تابع باستخدام Apple، أو أعد تعيين كلمة المرور لإضافة واحدة.",
-  "Missing Apple credential": "بيانات Apple مفقودة",
-  "Apple sign-in failed. Please try again.": "تعذّر تسجيل الدخول عبر Apple. حاول مرة أخرى.",
-  "Apple didn't share an email address. In Settings > Apple ID > Sign-In & Security > Sign in with Apple, stop using Apple for LisanCast, then try again.":
-    "لم تشارك Apple عنوان بريدك الإلكتروني. في الإعدادات افتح Apple ID ثم تسجيل الدخول والأمان ثم تسجيل الدخول باستخدام Apple، وأوقف استخدام Apple مع LisanCast، ثم حاول مرة أخرى.",
-  "Your Apple sign-in expired. Please continue with Apple again.": "انتهت صلاحية تسجيل الدخول عبر Apple. تابع باستخدام Apple مرة أخرى.",
-  "An account already exists for this Apple account. Sign in instead.": "يوجد حساب مرتبط بحساب Apple هذا. سجّل الدخول بدلاً من ذلك.",
   "Incorrect password": "كلمة المرور غير صحيحة",
   "Type your username to confirm": "اكتب اسم المستخدم للتأكيد",
   "Authentication required": "يجب تسجيل الدخول",

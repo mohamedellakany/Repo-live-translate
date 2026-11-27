@@ -2,7 +2,6 @@ import jwt from "jsonwebtoken";
 import type { NextFunction, Request, Response } from "express";
 import { config } from "./config.js";
 import { isExpired, users, type UserRow } from "./db.js";
-import type { AppleProfile } from "./apple.js";
 import type { GoogleProfile } from "./google.js";
 
 interface TokenPayload {
@@ -10,8 +9,8 @@ interface TokenPayload {
   typ?: undefined;
 }
 interface SignupPayload {
-  typ: "google_signup" | "apple_signup";
-  g: GoogleProfile | AppleProfile;
+  typ: "google_signup";
+  g: GoogleProfile;
 }
 
 export function signToken(userId: string): string {
@@ -24,22 +23,14 @@ export function signToken(userId: string): string {
 export const signSignupToken = (g: GoogleProfile) =>
   jwt.sign({ typ: "google_signup", g } satisfies SignupPayload, config.JWT_SECRET, { expiresIn: "20m" });
 
-function readSignupToken(token: string, typ: SignupPayload["typ"]): SignupPayload["g"] | null {
+export function verifySignupToken(token: string): GoogleProfile | null {
   try {
     const p = jwt.verify(token, config.JWT_SECRET) as SignupPayload;
-    return p.typ === typ ? p.g : null;
+    return p.typ === "google_signup" ? p.g : null;
   } catch {
     return null;
   }
 }
-
-export const verifySignupToken = (token: string) => readSignupToken(token, "google_signup") as GoogleProfile | null;
-
-/** Same, for a verified Apple profile. */
-export const signAppleSignupToken = (a: AppleProfile) =>
-  jwt.sign({ typ: "apple_signup", g: a } satisfies SignupPayload, config.JWT_SECRET, { expiresIn: "20m" });
-
-export const verifyAppleSignupToken = (token: string) => readSignupToken(token, "apple_signup") as AppleProfile | null;
 
 /** Link token in the "speaking access request" email that lets the admin approve with one click. */
 export const signApproveToken = (userId: string) =>
