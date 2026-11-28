@@ -86,7 +86,7 @@ export default function Account() {
         <View style={{ gap: spacing.sm }}>
           <Button title={t("usage.title")} icon="stats-chart-outline" onPress={() => router.push("/usage")} />
           <Button
-            title={lang === "ar" ? "إدارة المتحدثين" : "Manage speakers"}
+            title={lang === "ar" ? "طلبات التحدث والحسابات" : "Speaking requests & accounts"}
             icon="people-outline"
             variant="secondary"
             onPress={() => router.push("/admin")}

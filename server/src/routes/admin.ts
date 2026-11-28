@@ -4,11 +4,12 @@ import { requireAuth, verifyApproveToken } from "../auth.js";
 import { providerChain } from "../translation/caps.js";
 import { monthChars, usageHistory, usageMonth } from "../translation/usage.js";
 import { translator } from "../translation/index.js";
-import { adminUsernames, config, features } from "../config.js";
+import { config, features } from "../config.js";
 import { randomInt } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
-import { isExpired, toPublicUser, users, type UserRow } from "../db.js";
+import { isAdminUser, isExpired, isOwner, toPublicUser, users, type UserRow } from "../db.js";
+import { signOutUser } from "../realtime.js";
 import { grantSpeaking } from "../speaking.js";
 
 /*
@@ -66,9 +67,9 @@ adminRouter.post("/approve-speaker", async (req, res) => {
   page(res, "Approved ✓", `<p>@${esc(u.username)} (${esc(u.email)}) can now speak. We've emailed them to let them know.</p>`);
 });
 
-/** Translation usage for the Usage page in the app: only for ADMIN_USERNAMES. */
+/** Translation usage for the Usage page in the app: admins only. */
 adminRouter.get("/usage", requireAuth, async (req, res) => {
-  if (!adminUsernames.has(req.user!.username.toLowerCase())) return res.status(403).json({ error: "Only the account owner can see usage" });
+  if (!isAdminUser(req.user!)) return res.status(403).json({ error: "Only the account owner can see usage" });
   const month = usageMonth();
   const chain = providerChain();
   const history = await usageHistory(6);
@@ -90,12 +91,12 @@ adminRouter.get("/usage", requireAuth, async (req, res) => {
   });
 });
 
-/* ------------------------------ speaker accounts ------------------------------ */
-// Admin page "Manage speakers": create ready-to-use speaker accounts (optionally expiring), list them,
-// change expiry, and turn speaking on or off. Admin only (ADMIN_USERNAMES).
+/* ------------------------------ speakers and admins ------------------------------ */
+// Admin pages: approve speaking requests, search accounts, turn speaking on/off, change expiry, reset guest
+// accounts. The main admin (ADMIN_USERNAMES) can also make other accounts admins; those admins can't.
 
 const requireAdmin: import("express").RequestHandler = async (req, res, next) => {
-  if (!adminUsernames.has(req.user!.username.toLowerCase())) return res.status(403).json({ error: "Only the account owner can see usage" });
+  if (!isAdminUser(req.user!)) return res.status(403).json({ error: "Only the account owner can see usage" });
   next();
 };
 
@@ -112,52 +113,60 @@ function generatePassword(length = 12) {
   return Array.from({ length }, () => chars[randomInt(chars.length)]).join("");
 }
 
-const expirySchema = z
-  .string()
-  .datetime({ offset: true })
-  .nullable()
-  .refine((v) => v === null || Date.parse(v) > Date.now(), "Choose an expiry date in the future");
-
-adminRouter.get("/speakers", requireAuth, requireAdmin, async (_req, res) => {
-  res.json({ speakers: (await users.managed()).map(managedView) });
-});
-
-adminRouter.post("/speakers", requireAuth, requireAdmin, async (req, res) => {
-  const parsed = z
-    .object({
-      username: z
-        .string()
-        .trim()
-        .toLowerCase()
-        .regex(/^[a-z0-9_]{3,20}$/, "Username must be 3-20 characters: letters, numbers or underscore"),
-      displayName: z.string().trim().min(1, "Display name is required").max(60),
-      email: z.email("Enter a valid email").trim().toLowerCase(),
-      password: z.string().min(8, "Password must be at least 8 characters").max(200).optional(),
-      expiresAt: expirySchema,
-    })
-    .safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
-  const { username, displayName, email, expiresAt } = parsed.data;
-  if (await users.byUsername(username)) return res.status(409).json({ error: "That username is taken" });
-  if (await users.byEmail(email)) return res.status(409).json({ error: "An account with this email already exists" });
-  const password = parsed.data.password ?? generatePassword();
-  const user = await users.createByAdmin({ username, displayName, email, passwordHash: await bcrypt.hash(password, 10), expiresAt });
-  // The password is shown once, so the admin can pass it on; it's stored only as a hash.
-  res.status(201).json({ speaker: managedView(user), password });
+/** `?q=` searches every account by username, email or name; without it, the accounts the admin pages manage. */
+adminRouter.get("/speakers", requireAuth, requireAdmin, async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim().replace(/^@/, "") : "";
+  const rows = q.length >= 2 ? await users.search(q) : await users.managed();
+  res.json({ speakers: rows.map(managedView) });
 });
 
 adminRouter.patch("/speakers/:id", requireAuth, requireAdmin, async (req, res) => {
-  const parsed = z.object({ canSpeak: z.boolean().optional(), expiresAt: expirySchema.optional() }).safeParse(req.body ?? {});
+  const parsed = z
+    .object({ canSpeak: z.boolean().optional(), isAdmin: z.boolean().optional() })
+    .safeParse(req.body ?? {});
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid request" });
   const target = await users.byId(String(req.params.id));
   if (!target) return res.status(404).json({ error: "Account not found" });
-  // Never lock an admin account out by mistake.
-  if (adminUsernames.has(target.username.toLowerCase())) return res.status(400).json({ error: "Admin accounts can't be changed here" });
-  if (parsed.data.expiresAt !== undefined) await users.setExpiry(target.id, parsed.data.expiresAt);
+  const requesterIsOwner = isOwner(req.user!);
+  // The main admin can't be changed here, and other admins can only be changed by the main admin.
+  if (isOwner(target) || (target.is_admin && !requesterIsOwner)) return res.status(400).json({ error: "Admin accounts can't be changed here" });
+  if (parsed.data.isAdmin !== undefined) {
+    if (!requesterIsOwner) return res.status(403).json({ error: "Only the main admin can change admin rights" });
+    await users.setAdmin(target.id, parsed.data.isAdmin);
+  }
   if (parsed.data.canSpeak !== undefined) {
     // Turning speaking on also emails them (and clears a pending request), like approving a request.
     if (parsed.data.canSpeak && !target.can_speak) await grantSpeaking(target);
     else await users.setCanSpeak(target.id, parsed.data.canSpeak);
   }
   res.json({ speaker: managedView((await users.byId(target.id))!) });
+});
+
+/**
+ * Permanently delete an account (its sessions and transcripts go with it). The same protection as above: the main
+ * admin can't be deleted, other admins only by the main admin, and nobody deletes themselves here (that's in Account).
+ */
+adminRouter.delete("/speakers/:id", requireAuth, requireAdmin, async (req, res) => {
+  const target = await users.byId(String(req.params.id));
+  if (!target) return res.status(404).json({ error: "Account not found" });
+  if (target.id === req.user!.id) return res.status(400).json({ error: "Delete your own account from the Account page" });
+  if (isOwner(target) || (target.is_admin && !isOwner(req.user!))) return res.status(400).json({ error: "Admin accounts can't be changed here" });
+  await signOutUser(target.id); // ends a live broadcast and signs them out everywhere
+  await users.remove(target.id);
+  res.status(204).end();
+});
+
+/**
+ * Guest accounts: a new password and GUEST_SESSION_HOURS of access (speaking on). Whoever used it before is signed
+ * out at once, and the guest is signed out again automatically when the time is up.
+ */
+adminRouter.post("/speakers/:id/reset", requireAuth, requireAdmin, async (req, res) => {
+  const target = await users.byId(String(req.params.id));
+  if (!target) return res.status(404).json({ error: "Account not found" });
+  if (!target.is_guest) return res.status(400).json({ error: "Only guest accounts can be reset" });
+  const password = generatePassword();
+  const expiresAt = new Date(Date.now() + config.GUEST_SESSION_HOURS * 3600_000).toISOString();
+  await users.resetGuest(target.id, await bcrypt.hash(password, 10), expiresAt);
+  await signOutUser(target.id);
+  res.json({ speaker: managedView((await users.byId(target.id))!), password, expiresAt });
 });

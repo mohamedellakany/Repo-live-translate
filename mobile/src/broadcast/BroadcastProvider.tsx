@@ -77,7 +77,7 @@ export function useNow(active: boolean) {
 
 export function BroadcastProvider({ children }: { children: ReactNode }) {
   const { t } = useI18n();
-  const { token } = useAuth();
+  const { token, signOut } = useAuth();
 
   const socket = useMemo<Socket | null>(() => (token ? createSocket(token) : null), [token]);
   const [connected, setConnected] = useState(false);
@@ -183,6 +183,11 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     setNotice(t("speak.replaced"));
     endLocal();
   });
+  // The account's time is up (guest) or an admin reset it: stop broadcasting and sign out.
+  const onSignedOut = useEffectEvent(() => {
+    endLocal();
+    void signOut();
+  });
 
   useEffect(() => {
     if (!socket) return;
@@ -197,11 +202,14 @@ export function BroadcastProvider({ children }: { children: ReactNode }) {
     socket.on("disconnect", handleDisconnect);
     socket.on("room:stats", handleStats);
     socket.on("speaker:replaced", handleReplaced);
+    const handleSignedOut = () => onSignedOut();
+    socket.on("account:signed_out", handleSignedOut);
     return () => {
       socket.off("connect", handleConnect);
       socket.off("disconnect", handleDisconnect);
       socket.off("room:stats", handleStats);
       socket.off("speaker:replaced", handleReplaced);
+      socket.off("account:signed_out", handleSignedOut);
       socket.disconnect();
     };
   }, [socket]);

@@ -709,6 +709,7 @@ export function attachRealtime(server: Server) {
   });
 
   io.on("connection", (socket) => {
+    watchExpiry(socket);
 
     registerSpeakerHandlers(socket);
     const leaveListening = registerListenerHandlers(socket);
@@ -744,6 +745,41 @@ export function liveInfo(speakerId: string) {
 }
 
 export const liveSessionId = (speakerId: string) => rooms.get(speakerId)?.sessionId ?? null;
+
+/**
+ * Sign an account out everywhere right now: end its live broadcast, tell its apps ("account:signed_out", they then
+ * sign out), and disconnect them. Used when a guest's time runs out or an admin resets the guest.
+ */
+export async function signOutUser(userId: string) {
+  if (!io) return;
+  const mine = [...io.sockets.sockets.values()].filter((s) => (s.data.user as UserRow | undefined)?.id === userId);
+  // Tell the apps first: ending the broadcast disconnects the speaker's device, which would miss the message.
+  for (const s of mine) s.emit("account:signed_out");
+  await forceEndSpeaker(userId);
+  for (const s of mine) s.disconnect(true);
+}
+
+/** Accounts with an expiry date (guests): sign them out the moment it passes, even in the middle of a broadcast. */
+function watchExpiry(socket: Socket) {
+  const user: UserRow | undefined = socket.data.user;
+  if (!user?.expires_at) return;
+  const MAX_WAIT = 24 * 60 * 60_000; // longer waits are re-checked; connections rarely last that long
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const check = async () => {
+    const fresh = await users.byId(user.id).catch(() => undefined);
+    if (!socket.connected) return;
+    if (!fresh || isExpired(fresh)) return void signOutUser(user.id);
+    schedule(fresh.expires_at);
+  };
+  const schedule = (expiresAt: string | null) => {
+    if (!expiresAt) return;
+    const wait = Math.min(Math.max(0, Date.parse(expiresAt) - Date.now()) + 500, MAX_WAIT);
+    timer = setTimeout(() => void check(), wait);
+    timer.unref?.();
+  };
+  schedule(user.expires_at);
+  socket.on("disconnect", () => timer && clearTimeout(timer));
+}
 
 /** Used when an account is deleted: end any live session and disconnect the broadcasting device. */
 export async function forceEndSpeaker(speakerId: string) {

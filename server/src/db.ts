@@ -143,6 +143,9 @@ await migrate();
 await pool.query(`
   ALTER TABLE users ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS created_by_admin BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS is_guest BOOLEAN NOT NULL DEFAULT FALSE;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS session_version INTEGER NOT NULL DEFAULT 0;
 `);
 
 /* --------------------------------- types --------------------------------- */
@@ -159,6 +162,12 @@ export interface UserRow {
   /** The account stops working after this moment (admin-created accounts). null = never. */
   expires_at: string | null;
   created_by_admin: boolean;
+  /** Made an admin by the main admin (who is set by ADMIN_USERNAMES). */
+  is_admin: boolean;
+  /** A shared guest account: an admin's Reset gives it a new password and a few hours. */
+  is_guest: boolean;
+  /** Sign-ins (tokens) carry this number; raising it (guest Reset) makes every earlier sign-in stop working. */
+  session_version: number;
   speak_request_note: string | null;
   created_at: string;
 }
@@ -176,6 +185,9 @@ export interface PublicUser {
   isAdmin: boolean;
   /** When the account stops working (set by an admin), or null. */
   expiresAt: string | null;
+  /** The main admin (ADMIN_USERNAMES): the only one who can make or remove admins. */
+  isOwner: boolean;
+  isGuest: boolean;
   /** When the user asked for speaking access (null if they haven't, or once it's granted). */
   speakRequestedAt: string | null;
   createdAt: string;
@@ -219,6 +231,11 @@ export interface Segment {
   createdAt: string;
 }
 
+/** The main admin, set by ADMIN_USERNAMES on the server. */
+export const isOwner = (u: Pick<UserRow, "username">) => adminUsernames.has(u.username.toLowerCase());
+/** Admin rights: the main admin, or someone the main admin made an admin. */
+export const isAdminUser = (u: Pick<UserRow, "username" | "is_admin">) => isOwner(u) || !!u.is_admin;
+
 /** The account's expiry date has passed: it can't sign in or be used anymore. */
 export const isExpired = (u: Pick<UserRow, "expires_at">) => !!u.expires_at && Date.parse(u.expires_at) <= Date.now();
 
@@ -231,8 +248,10 @@ export const toPublicUser = (u: UserRow): PublicUser => ({
   hasPassword: !!u.password_hash,
   googleLinked: !!u.google_sub,
   canSpeak: !!u.can_speak,
-  isAdmin: adminUsernames.has(u.username.toLowerCase()),
+  isAdmin: isAdminUser(u),
   expiresAt: u.expires_at,
+  isOwner: isOwner(u),
+  isGuest: !!u.is_guest,
   speakRequestedAt: u.can_speak ? null : u.speak_requested_at,
   createdAt: u.created_at,
 });
@@ -276,9 +295,30 @@ export const users = {
   /** Admin page: everyone who can speak, has asked to, or was created by an admin (newest first). */
   managed: () =>
     all<UserRow>(
-      `SELECT * FROM users WHERE can_speak OR created_by_admin OR speak_requested_at IS NOT NULL
+      `SELECT * FROM users WHERE can_speak OR created_by_admin OR is_admin OR is_guest OR speak_requested_at IS NOT NULL
        ORDER BY created_at DESC LIMIT 500`,
     ),
+  /** Admin search by username, email or name (any account). */
+  search: (q: string) =>
+    all<UserRow>(
+      `SELECT * FROM users WHERE username ILIKE $1 OR email ILIKE $1 OR display_name ILIKE $1
+       ORDER BY (speak_requested_at IS NOT NULL AND NOT can_speak) DESC, created_at DESC LIMIT 50`,
+      [`%${q.replace(/[%_\\]/g, (c) => `\\${c}`)}%`],
+    ),
+  setAdmin: (id: string, isAdmin: boolean) => run("UPDATE users SET is_admin = $1 WHERE id = $2", [isAdmin, id]),
+  /** Guest Reset: new password, works until `expiresAt`, and every earlier sign-in stops working. */
+  resetGuest: (id: string, passwordHash: string, expiresAt: string) =>
+    run(
+      `UPDATE users SET password_hash = $1, expires_at = $2, can_speak = TRUE, email_verified = TRUE,
+         session_version = session_version + 1 WHERE id = $3`,
+      [passwordHash, expiresAt, id],
+    ),
+  createGuest: async (input: { username: string; email: string; displayName: string; passwordHash: string }) =>
+    (await one<UserRow>(
+      `INSERT INTO users (id, username, email, display_name, password_hash, email_verified, can_speak, created_by_admin, is_guest, expires_at)
+       VALUES ($1, $2, $3, $4, $5, TRUE, TRUE, TRUE, TRUE, now()) RETURNING *`,
+      [randomUUID(), input.username, input.email, input.displayName, input.passwordHash],
+    ))!,
   /** An admin-created account: ready to use (email counted as verified), speaking on, optional expiry. */
   createByAdmin: async (input: { username: string; email: string; displayName: string; passwordHash: string; expiresAt: string | null }) =>
     (await one<UserRow>(

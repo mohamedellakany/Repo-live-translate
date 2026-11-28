@@ -6,6 +6,8 @@ import type { GoogleProfile } from "./google.js";
 
 interface TokenPayload {
   sub: string;
+  /** The account's session_version when signed in (missing on older tokens = 0). */
+  ver?: number;
   typ?: undefined;
 }
 interface SignupPayload {
@@ -13,8 +15,8 @@ interface SignupPayload {
   g: GoogleProfile;
 }
 
-export function signToken(userId: string): string {
-  return jwt.sign({ sub: userId }, config.JWT_SECRET, {
+export function signToken(userId: string, version = 0): string {
+  return jwt.sign({ sub: userId, ...(version ? { ver: version } : {}) }, config.JWT_SECRET, {
     expiresIn: config.JWT_EXPIRES_IN as jwt.SignOptions["expiresIn"],
   });
 }
@@ -57,7 +59,10 @@ export async function userFromToken(token: string | undefined | null): Promise<U
   if (payload.typ) return null; // signup tokens can't be used as sessions
   const user = (await users.byId(payload.sub)) ?? null;
   // An admin-set expiry date has passed: the account no longer works (it's signed out everywhere).
-  return user && !isExpired(user) ? user : null;
+  if (!user || isExpired(user)) return null;
+  // Signed in before a guest Reset (or another "sign out everywhere"): that sign-in no longer works.
+  if ((payload.ver ?? 0) !== (user.session_version ?? 0)) return null;
+  return user;
 }
 
 declare global {

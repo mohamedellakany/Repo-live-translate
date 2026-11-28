@@ -10,8 +10,14 @@ export interface User {
   googleLinked: boolean;
   /** Speaking (broadcasting) is by approval; listening is open to everyone. */
   canSpeak: boolean;
-  /** May open the private Usage page. */
+  /** May open the admin pages (Usage, approvals, speakers). */
   isAdmin?: boolean;
+  /** The main admin: the only one who can make or remove admins. */
+  isOwner?: boolean;
+  /** A shared guest account (reset by an admin for a few hours at a time). */
+  isGuest?: boolean;
+  /** When the account stops working, or null. */
+  expiresAt?: string | null;
   /** When the user asked for speaking access; null if they haven't (or already have it). */
   speakRequestedAt: string | null;
   createdAt: string;
@@ -111,6 +117,11 @@ export class ApiError extends Error {
 }
 
 let authToken: string | null = null;
+/** Called when the server rejects the saved sign-in (expired account, guest reset): the app signs out. */
+let onSignedOut: (() => void) | null = null;
+export const setSignedOutHandler = (fn: (() => void) | null) => {
+  onSignedOut = fn;
+};
 export const setApiToken = (token: string | null) => {
   authToken = token;
 };
@@ -149,6 +160,8 @@ export async function request<T>(method: string, path: string, body?: unknown): 
   const data = await res.json().catch(() => ({}));
   // Maintenance mode (deploy/maintenance.sh): the server answers 503 with { maintenance: true }.
   if (res.status === 503 && data.maintenance) throw new ApiError(MAINTENANCE[apiLanguage] ?? MAINTENANCE.en, 503);
+  // A signed-in request rejected as "not signed in": the account expired or was reset; sign out everywhere in the app.
+  if (res.status === 401 && authToken) onSignedOut?.();
   if (!res.ok) throw new ApiError(data.error ?? `Request failed (${res.status})`, res.status);
   return data as T;
 }

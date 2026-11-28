@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { api, ApiError, setApiToken, type AuthResult, type GoogleResult, type User } from "@/lib/api";
+import { api, ApiError, setApiToken, type AuthResult, type GoogleResult, type User, setSignedOutHandler } from "@/lib/api";
 import { storage } from "@/lib/storage";
 
 const TOKEN_KEY = "lt.token";
@@ -36,6 +36,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     else await storage.remove(TOKEN_KEY);
     return next?.user ?? null;
   }, []);
+
+  // The server can end a sign-in at any time (expired account, guest reset): forget it here too.
+  useEffect(() => {
+    setSignedOutHandler(() => void apply(null));
+    return () => setSignedOutHandler(null);
+  }, [apply]);
 
   // Restore session on launch.
   useEffect(() => {

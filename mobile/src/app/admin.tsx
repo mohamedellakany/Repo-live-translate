@@ -1,188 +1,139 @@
+import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
-import { Redirect } from "expo-router";
-import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, Pressable, RefreshControl, ScrollView, Text, View } from "react-native";
+import { Redirect, router, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, ScrollView, Text, TextInput, View } from "react-native";
 import { useAuth } from "@/auth/AuthProvider";
-import { AppHeader, Banner, Button, Card, IconButton, Screen, Sheet, SwitchRow, TextField } from "@/components/ui";
+import { AppHeader, Banner, Button, Card, IconButton, Screen, Sheet, SwitchRow } from "@/components/ui";
 import { useI18n } from "@/i18n";
 import { adminApi, type ManagedSpeaker } from "@/lib/adminApi";
 import { makeStyles, radius, spacing, useTheme } from "@/theme";
 
 /*
- * Admin only (ADMIN_USERNAMES): create ready-to-use speaker accounts (no email code; speaking on; optional expiry),
- * see everyone who can speak, change expiry, turn speaking on/off, and approve speaking requests.
- * Texts live here (not in the shared language files) because only the admin sees this page.
+ * Admin pages (admins only):
+ *  - "Speaking requests": approve people who asked to speak.
+ *  - "Accounts": search anyone by username/email, turn speaking on/off, delete accounts, Reset guest accounts
+ *    (new password + 6 hours), and (main admin only) make or remove admins.
+ * Texts live here (not in the shared language files) because only admins see these pages.
  */
 const TEXT = {
   en: {
-    title: "Manage speakers",
-    add: "Add speaker account",
-    addTitle: "New speaker account",
-    name: "Name",
-    username: "Speaker ID",
-    usernameHint: "3-20 letters, numbers or _. Listeners use it to find them.",
-    email: "Email",
-    password: "Password",
-    passwordHint: "Leave empty to generate one automatically.",
-    expiry: "Account expires",
-    create: "Create account",
-    createdTitle: "Account ready",
-    createdText: "Send these details to the speaker. The password is shown only now.",
+    title: "Admin",
+    tabRequests: "Speaking requests",
+    tabAccounts: "Accounts",
+    search: "Search by username or email",
+    noRequests: "No pending speaking requests.",
+    noResults: "No accounts found.",
+    requested: "Asked {date}",
+    approve: "Approve",
+    speaking: "Can speak",
+    admin: "Admin",
+    adminHint: "Can use the admin pages, but can't make other admins.",
+    mainAdmin: "Main admin",
+    guest: "Guest",
+    guestOff: "Off until Reset",
+    del: "Delete",
+    deleteConfirmTitle: "Delete @{username}?",
+    deleteConfirm: "This permanently deletes the account and its saved sessions. It can't be undone.",
+    cancel: "Cancel",
+    guestOn: "Active until {time} ({left} left)",
+    reset: "Reset · {hours} hours",
+    resetConfirmTitle: "Reset the guest account?",
+    resetConfirm: "It gets a new password and works for {hours} hours. Anyone using it now is signed out.",
+    resetTitle: "Guest account ready",
+    resetText: "Give these details to the guest speaker. The password is shown only now.",
     copy: "Copy details",
     copied: "Copied",
     done: "Done",
-    requests: "Speaking requests",
-    approve: "Approve",
-    speakers: "Speakers",
-    none: "No speakers yet.",
-    speaking: "Can speak",
-    changeExpiry: "Expiry",
-    expiryTitle: "Change expiry",
-    save: "Save",
-    never: "Never",
-    today: "Today",
-    tomorrow: "Tomorrow",
-    week: "1 week",
-    month: "1 month",
-    pick: "Pick a date",
-    dateHint: "Year-month-day, e.g. 2026-12-31. Works until the end of that day.",
-    expires: "Expires {date}",
-    expired: "Expired {date}",
-    noExpiry: "No expiry",
-    createdByAdmin: "Created by admin",
-    details: "LisanCast speaker account\nSign in: {url}/login\nSpeaker ID: {username}\nEmail: {email}\nPassword: {password}",
+    details: "LisanCast guest speaker\nSign in: {url}/login\nSpeaker ID: {username}\nPassword: {password}\nWorks until: {until}\nListeners: {url}/listen/{username}",
   },
   ar: {
-    title: "إدارة المتحدثين",
-    add: "إضافة حساب متحدث",
-    addTitle: "حساب متحدث جديد",
-    name: "الاسم",
-    username: "معرّف المتحدث",
-    usernameHint: "من 3 إلى 20 حرفاً إنجليزياً أو رقماً أو _. يستخدمه المستمعون للعثور عليه.",
-    email: "البريد الإلكتروني",
-    password: "كلمة المرور",
-    passwordHint: "اتركها فارغة لإنشاء واحدة تلقائياً.",
-    expiry: "انتهاء صلاحية الحساب",
-    create: "إنشاء الحساب",
-    createdTitle: "الحساب جاهز",
-    createdText: "أرسل هذه البيانات إلى المتحدث. تظهر كلمة المرور الآن فقط.",
+    title: "الإدارة",
+    tabRequests: "طلبات التحدث",
+    tabAccounts: "الحسابات",
+    search: "ابحث باسم المستخدم أو البريد",
+    noRequests: "لا توجد طلبات تحدث معلّقة.",
+    noResults: "لم يتم العثور على حسابات.",
+    requested: "طُلب {date}",
+    approve: "موافقة",
+    speaking: "يمكنه التحدث",
+    admin: "مشرف",
+    adminHint: "يمكنه استخدام صفحات الإدارة، لكن لا يمكنه تعيين مشرفين آخرين.",
+    mainAdmin: "المشرف الرئيسي",
+    guest: "ضيف",
+    guestOff: "متوقف حتى إعادة التعيين",
+    del: "حذف",
+    deleteConfirmTitle: "حذف الحساب ‎@{username}‎؟",
+    deleteConfirm: "سيتم حذف الحساب وجلساته المحفوظة نهائياً. لا يمكن التراجع عن ذلك.",
+    cancel: "إلغاء",
+    guestOn: "فعّال حتى {time} (متبقٍ {left})",
+    reset: "إعادة تعيين · {hours} ساعات",
+    resetConfirmTitle: "إعادة تعيين حساب الضيف؟",
+    resetConfirm: "سيحصل على كلمة مرور جديدة ويعمل لمدة {hours} ساعات. سيُسجَّل خروج من يستخدمه الآن.",
+    resetTitle: "حساب الضيف جاهز",
+    resetText: "أعطِ هذه البيانات للمتحدث الضيف. تظهر كلمة المرور الآن فقط.",
     copy: "نسخ البيانات",
     copied: "تم النسخ",
     done: "تم",
-    requests: "طلبات التحدث",
-    approve: "موافقة",
-    speakers: "المتحدثون",
-    none: "لا يوجد متحدثون بعد.",
-    speaking: "يمكنه التحدث",
-    changeExpiry: "الصلاحية",
-    expiryTitle: "تغيير تاريخ الانتهاء",
-    save: "حفظ",
-    never: "بدون انتهاء",
-    today: "اليوم",
-    tomorrow: "غداً",
-    week: "أسبوع",
-    month: "شهر",
-    pick: "اختر تاريخاً",
-    dateHint: "سنة-شهر-يوم، مثل 2026-12-31. يعمل حتى نهاية ذلك اليوم.",
-    expires: "ينتهي {date}",
-    expired: "انتهى {date}",
-    noExpiry: "بدون انتهاء",
-    createdByAdmin: "أنشأه المشرف",
-    details: "حساب متحدث في لسان كاست\nتسجيل الدخول: {url}/login\nمعرّف المتحدث: {username}\nالبريد: {email}\nكلمة المرور: {password}",
+    details: "متحدث ضيف في لسان كاست\nتسجيل الدخول: {url}/login\nمعرّف المتحدث: {username}\nكلمة المرور: {password}\nيعمل حتى: {until}\nللمستمعين: {url}/listen/{username}",
   },
 };
 type Key = keyof typeof TEXT.en;
 
-type ExpiryChoice = "never" | "today" | "tomorrow" | "week" | "month" | "pick";
-const CHOICES: ExpiryChoice[] = ["today", "tomorrow", "week", "month", "never", "pick"];
-
-/** End of a local day (23:59:59), `days` from today. */
-function endOfDay(days: number) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  d.setHours(23, 59, 59, 0);
-  return d;
-}
-/** The chosen expiry as an ISO date-time, null for never, or undefined if the picked date isn't valid. */
-function expiryFor(choice: ExpiryChoice, picked: string): string | null | undefined {
-  switch (choice) {
-    case "never":
-      return null;
-    case "today":
-      return endOfDay(0).toISOString();
-    case "tomorrow":
-      return endOfDay(1).toISOString();
-    case "week":
-      return endOfDay(7).toISOString();
-    case "month":
-      return endOfDay(30).toISOString();
-    case "pick": {
-      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(picked.trim());
-      if (!m) return undefined;
-      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 23, 59, 59);
-      return Number.isNaN(d.getTime()) || d.getTime() <= Date.now() ? undefined : d.toISOString();
-    }
-  }
-}
-const suggestUsername = (name: string) =>
-  name
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 20);
-
+const GUEST_HOURS = 6;
 export default function Admin() {
   const { colors } = useTheme();
   const styles = useStyles();
   const { lang } = useI18n();
   const { user, ready } = useAuth();
-  const t = (key: Key, params: Record<string, string> = {}) =>
-    Object.entries(params).reduce((s, [k, v]) => s.split(`{${k}}`).join(v), (TEXT[lang] ?? TEXT.en)[key]);
-  const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString(lang === "ar" ? "ar" : "en", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  const params = useLocalSearchParams<{ tab?: string }>();
+  const t = (key: Key, p: Record<string, string> = {}) =>
+    Object.entries(p).reduce((s, [k, v]) => s.split(`{${k}}`).join(v), (TEXT[lang] ?? TEXT.en)[key]);
+  const locale = lang === "ar" ? "ar" : "en";
+  const formatDate = (iso: string) => new Date(iso).toLocaleDateString(locale, { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+  const formatTime = (iso: string) => new Date(iso).toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  // A clock that ticks every 30 s, so guest countdowns stay current without calling Date.now() while drawing.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const timeLeft = (iso: string) => {
+    const mins = Math.max(0, Math.round((Date.parse(iso) - now) / 60_000));
+    return mins >= 60 ? `${Math.floor(mins / 60)}h ${mins % 60}m` : `${mins}m`;
+  };
 
-  const [speakers, setSpeakers] = useState<ManagedSpeaker[] | null>(null);
+  const [tab, setTab] = useState<"requests" | "accounts">(params.tab === "accounts" ? "accounts" : "requests");
+  const [query, setQuery] = useState("");
+  const [list, setList] = useState<ManagedSpeaker[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
-
-  // Add form
-  const [adding, setAdding] = useState(false);
-  const [form, setForm] = useState({ displayName: "", username: "", email: "", password: "" });
-  const [usernameTouched, setUsernameTouched] = useState(false);
-  const [choice, setChoice] = useState<ExpiryChoice>("tomorrow");
-  const [picked, setPicked] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [created, setCreated] = useState<{ speaker: ManagedSpeaker; password: string } | null>(null);
+  const [resetResult, setResetResult] = useState<{ speaker: ManagedSpeaker; password: string; expiresAt: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const latestQuery = useRef("");
 
-  // Change expiry
-  const [editing, setEditing] = useState<ManagedSpeaker | null>(null);
-  const [editChoice, setEditChoice] = useState<ExpiryChoice>("week");
-  const [editPicked, setEditPicked] = useState("");
-
-  const load = useCallback(async () => {
+  const load = useCallback(async (q: string) => {
+    latestQuery.current = q;
     try {
-      setSpeakers((await adminApi.speakers()).speakers);
+      const res = await adminApi.speakers(q);
+      if (latestQuery.current === q) setList(res.speakers); // ignore answers to older searches
       setError(null);
     } catch (e) {
       setError((e as Error).message);
     }
   }, []);
+  // Search as you type (after a short pause); the first load happens straight away.
   useEffect(() => {
     if (!user?.isAdmin) return;
-    adminApi
-      .speakers()
-      .then((r) => setSpeakers(r.speakers))
-      .catch((e) => setError((e as Error).message));
-  }, [user?.isAdmin]);
+    const timer = setTimeout(() => void load(query), query ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [query, user?.isAdmin, load]);
 
   if (ready && (!user || !user.isAdmin)) return <Redirect href="/" />;
 
-  const replace = (s: ManagedSpeaker) => setSpeakers((list) => (list ? list.map((x) => (x.id === s.id ? s : x)) : list));
-  const update = async (s: ManagedSpeaker, patch: { canSpeak?: boolean; expiresAt?: string | null }) => {
+  const replace = (s: ManagedSpeaker) => setList((l) => (l ? l.map((x) => (x.id === s.id ? s : x)) : l));
+  const update = async (s: ManagedSpeaker, patch: { canSpeak?: boolean; isAdmin?: boolean }) => {
     setBusyId(s.id);
     setError(null);
     try {
@@ -195,190 +146,201 @@ export default function Admin() {
       setBusyId(null);
     }
   };
-
-  const openAdd = () => {
-    setForm({ displayName: "", username: "", email: "", password: "" });
-    setUsernameTouched(false);
-    setChoice("tomorrow");
-    setPicked("");
-    setFormError(null);
-    setAdding(true);
-  };
-  const create = async () => {
-    const expiresAt = expiryFor(choice, picked);
-    if (expiresAt === undefined) return setFormError(t("dateHint"));
-    setSaving(true);
-    setFormError(null);
-    try {
-      const res = await adminApi.createSpeaker({
-        displayName: form.displayName.trim(),
-        username: form.username.trim(),
-        email: form.email.trim(),
-        password: form.password.trim() || undefined,
-        expiresAt,
-      });
-      setSpeakers((list) => [res.speaker, ...(list ?? [])]);
-      setAdding(false);
-      setCopied(false);
-      setCreated(res);
-    } catch (e) {
-      setFormError((e as Error).message);
-    } finally {
-      setSaving(false);
+  /** Yes/No question: the browser's dialog on the web, a native alert in the apps. */
+  const confirm = (title: string, message: string, yes: string, onYes: () => void, destructive = false) => {
+    if (Platform.OS === "web") {
+      if (globalThis.confirm?.(`${title}\n${message}`)) onYes();
+    } else {
+      Alert.alert(title, message, [
+        { text: t("cancel"), style: "cancel" },
+        { text: yes, style: destructive ? "destructive" : "default", onPress: onYes },
+      ]);
     }
   };
-  const details = created
+  const remove = (s: ManagedSpeaker) =>
+    confirm(
+      t("deleteConfirmTitle", { username: s.username }),
+      t("deleteConfirm"),
+      t("del"),
+      async () => {
+        setBusyId(s.id);
+        setError(null);
+        try {
+          await adminApi.deleteSpeaker(s.id);
+          setList((l) => (l ? l.filter((x) => x.id !== s.id) : l));
+        } catch (e) {
+          setError((e as Error).message);
+        } finally {
+          setBusyId(null);
+        }
+      },
+      true,
+    );
+  const reset = (s: ManagedSpeaker) => {
+    const doReset = async () => {
+      setBusyId(s.id);
+      setError(null);
+      try {
+        const res = await adminApi.resetGuest(s.id);
+        replace(res.speaker);
+        setCopied(false);
+        setResetResult(res);
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setBusyId(null);
+      }
+    };
+    const hours = String(GUEST_HOURS);
+    confirm(t("resetConfirmTitle"), t("resetConfirm", { hours }), t("reset", { hours }), () => void doReset());
+  };
+
+  const origin = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "https://app.lisancast.com";
+  const details = resetResult
     ? t("details", {
-        url: typeof window !== "undefined" && window.location?.origin ? window.location.origin : "https://app.lisancast.com",
-        username: created.speaker.username,
-        email: created.speaker.email,
-        password: created.password,
+        url: origin,
+        username: resetResult.speaker.username,
+        password: resetResult.password,
+        until: `${formatDate(resetResult.expiresAt)} ${formatTime(resetResult.expiresAt)}`,
       })
     : "";
 
-  const status = (s: ManagedSpeaker) =>
-    s.expiresAt ? t(s.expired ? "expired" : "expires", { date: formatDate(s.expiresAt) }) : t("noExpiry");
-  const requests = (speakers ?? []).filter((s) => !s.canSpeak && s.speakRequestedAt && !s.expired);
-  const others = (speakers ?? []).filter((s) => !requests.includes(s));
+  const pending = (list ?? []).filter((s) => !s.canSpeak && s.speakRequestedAt && !s.expired);
+  const accounts = (list ?? []).filter((s) => !pending.includes(s));
+  const viewerIsOwner = !!user?.isOwner;
 
-  const choiceRow = (value: ExpiryChoice, set: (c: ExpiryChoice) => void, allowNever = true) => (
-    <View style={styles.chips}>
-      {CHOICES.filter((c) => allowNever || c !== "never").map((c) => (
-        <Pressable key={c} onPress={() => set(c)} style={[styles.chip, value === c && styles.chipOn]} accessibilityRole="radio" accessibilityState={{ selected: value === c }}>
-          <Text style={[styles.chipText, value === c && styles.chipTextOn]}>{t(c)}</Text>
-        </Pressable>
-      ))}
+  const guestStatus = (s: ManagedSpeaker) =>
+    s.expiresAt && !s.expired ? t("guestOn", { time: formatTime(s.expiresAt), left: timeLeft(s.expiresAt) }) : t("guestOff");
+  const badge = (label: string, color: string) => (
+    <View style={[styles.badge, { borderColor: color }]}>
+      <Text style={[styles.badgeText, { color }]}>{label}</Text>
     </View>
   );
 
   return (
-    <Screen header={<AppHeader title={t("title")} right={<IconButton icon="refresh" label={t("title")} onPress={load} />} />}>
+    <Screen header={<AppHeader title={t("title")} right={<IconButton icon="refresh" label={t("title")} onPress={() => void load(query)} />} />}>
+      {/* Tabs */}
+      <View style={styles.tabs}>
+        {(["requests", "accounts"] as const).map((k) => (
+          <Pressable
+            key={k}
+            onPress={() => {
+              setTab(k);
+              router.setParams({ tab: k });
+            }}
+            style={[styles.tab, tab === k && styles.tabOn]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: tab === k }}
+          >
+            <Text style={[styles.tabText, tab === k && styles.tabTextOn]}>
+              {k === "requests" ? `${t("tabRequests")}${pending.length ? ` (${pending.length})` : ""}` : t("tabAccounts")}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Search */}
+      <View style={styles.searchBox}>
+        <Ionicons name="search" size={18} color={colors.textDim} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={t("search")}
+          placeholderTextColor={colors.textDim}
+          autoCapitalize="none"
+          autoCorrect={false}
+          style={styles.searchInput}
+          accessibilityLabel={t("search")}
+        />
+        {!!query && (
+          <Pressable onPress={() => setQuery("")} hitSlop={10} accessibilityRole="button" accessibilityLabel="Clear">
+            <Ionicons name="close-circle" size={18} color={colors.textDim} />
+          </Pressable>
+        )}
+      </View>
+
       {error && <Banner tone="error" text={error} />}
-      {!speakers && !error && <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />}
-      {speakers && (
+      {!list && !error && <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />}
+      {list && (
         <ScrollView
           contentContainerStyle={{ gap: spacing.md, paddingBottom: spacing.xl }}
+          keyboardShouldPersistTaps="handled"
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               tintColor={colors.primary}
               onRefresh={async () => {
                 setRefreshing(true);
-                await load();
+                await load(query);
                 setRefreshing(false);
               }}
             />
           }
         >
-          <Button title={t("add")} icon="person-add-outline" onPress={openAdd} />
-
-          {requests.length > 0 && (
-            <>
-              <Text style={styles.section}>
-                {t("requests")} ({requests.length})
-              </Text>
-              {requests.map((s) => (
+          {tab === "requests" ? (
+            pending.length === 0 ? (
+              <Text style={styles.meta}>{query ? t("noResults") : t("noRequests")}</Text>
+            ) : (
+              pending.map((s) => (
                 <Card key={s.id} style={{ gap: spacing.xs, borderWidth: 1, borderColor: colors.warning }}>
                   <Text style={styles.name}>{s.displayName}</Text>
                   <Text style={styles.meta}>
                     @{s.username} · {s.email}
                   </Text>
+                  {!!s.speakRequestedAt && <Text style={styles.meta}>{t("requested", { date: formatDate(s.speakRequestedAt) })}</Text>}
                   {!!s.speakRequestNote && <Text style={styles.note}>“{s.speakRequestNote}”</Text>}
                   <Button title={t("approve")} icon="checkmark" onPress={() => update(s, { canSpeak: true })} loading={busyId === s.id} />
                 </Card>
-              ))}
-            </>
+              ))
+            )
+          ) : accounts.length === 0 ? (
+            <Text style={styles.meta}>{t("noResults")}</Text>
+          ) : (
+            accounts.map((s) => {
+              // The main admin can't be changed; other admins only by the main admin.
+              const locked = s.isOwner || (s.isAdmin && !viewerIsOwner);
+              return (
+                <Card key={s.id} style={{ gap: spacing.xs }}>
+                  <View style={styles.row}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <View style={styles.nameRow}>
+                        <Text style={styles.name}>{s.displayName}</Text>
+                        {s.isOwner ? badge(t("mainAdmin"), colors.primary) : s.isAdmin ? badge(t("admin"), colors.primary) : null}
+                        {s.isGuest && badge(t("guest"), colors.warning)}
+                      </View>
+                      <Text style={styles.meta}>
+                        @{s.username} · {s.email}
+                      </Text>
+                      {s.isGuest && <Text style={[styles.meta, !s.expired && !!s.expiresAt && { color: colors.warning }]}>{guestStatus(s)}</Text>}
+                    </View>
+                    {!locked && s.id !== user?.id && (
+                      <Button title={t("del")} icon="trash-outline" variant="danger" onPress={() => remove(s)} loading={busyId === s.id} />
+                    )}
+                  </View>
+                  {s.isGuest && (
+                    <Button
+                      title={t("reset", { hours: String(GUEST_HOURS) })}
+                      icon="refresh"
+                      onPress={() => reset(s)}
+                      loading={busyId === s.id}
+                    />
+                  )}
+                  {!locked && !s.isGuest && (
+                    <SwitchRow label={t("speaking")} value={s.canSpeak} onValueChange={(on) => void update(s, { canSpeak: on })} />
+                  )}
+                  {viewerIsOwner && !s.isOwner && !s.isGuest && (
+                    <SwitchRow label={t("admin")} hint={t("adminHint")} value={!!s.isAdmin} onValueChange={(on) => void update(s, { isAdmin: on })} />
+                  )}
+                </Card>
+              );
+            })
           )}
-
-          <Text style={styles.section}>{t("speakers")}</Text>
-          {others.length === 0 && <Text style={styles.meta}>{t("none")}</Text>}
-          {others.map((s) => (
-            <Card key={s.id} style={[{ gap: spacing.xs }, s.expired && { opacity: 0.6 }]}>
-              <View style={styles.row}>
-                <View style={{ flex: 1, gap: 2 }}>
-                  <Text style={styles.name}>{s.displayName}</Text>
-                  <Text style={styles.meta}>
-                    @{s.username} · {s.email}
-                  </Text>
-                  <Text style={[styles.meta, s.expired ? { color: colors.danger } : s.expiresAt ? { color: colors.warning } : null]}>
-                    {status(s)}
-                    {s.createdByAdmin ? ` · ${t("createdByAdmin")}` : ""}
-                  </Text>
-                </View>
-                {!s.isAdmin && (
-                  <Button
-                    title={t("changeExpiry")}
-                    variant="secondary"
-                    onPress={() => {
-                      setEditChoice(s.expired ? "week" : s.expiresAt ? "week" : "never");
-                      setEditPicked("");
-                      setEditing(s);
-                    }}
-                  />
-                )}
-              </View>
-              {!s.isAdmin && (
-                <SwitchRow label={t("speaking")} value={s.canSpeak} onValueChange={(on) => void update(s, { canSpeak: on })} />
-              )}
-            </Card>
-          ))}
         </ScrollView>
       )}
 
-      {/* Add a speaker */}
-      <Sheet visible={adding} onClose={() => setAdding(false)} title={t("addTitle")}>
-        <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ gap: spacing.sm }} keyboardShouldPersistTaps="handled">
-          {formError && <Banner tone="error" text={formError} />}
-          <TextField
-            label={t("name")}
-            value={form.displayName}
-            onChangeText={(displayName) =>
-              setForm((f) => ({ ...f, displayName, username: usernameTouched ? f.username : suggestUsername(displayName) }))
-            }
-          />
-          <TextField
-            label={t("username")}
-            prefix="@"
-            value={form.username}
-            onChangeText={(username) => {
-              setUsernameTouched(true);
-              setForm((f) => ({ ...f, username }));
-            }}
-            autoCapitalize="none"
-            autoCorrect={false}
-            hint={t("usernameHint")}
-          />
-          <TextField
-            label={t("email")}
-            value={form.email}
-            onChangeText={(email) => setForm((f) => ({ ...f, email }))}
-            autoCapitalize="none"
-            keyboardType="email-address"
-          />
-          <TextField
-            label={t("password")}
-            value={form.password}
-            onChangeText={(password) => setForm((f) => ({ ...f, password }))}
-            autoCapitalize="none"
-            autoCorrect={false}
-            hint={t("passwordHint")}
-          />
-          <Text style={styles.label}>{t("expiry")}</Text>
-          {choiceRow(choice, setChoice)}
-          {choice === "pick" && <TextField value={picked} onChangeText={setPicked} placeholder="2026-12-31" hint={t("dateHint")} />}
-          <Button
-            title={t("create")}
-            icon="checkmark"
-            onPress={create}
-            loading={saving}
-            disabled={!form.displayName.trim() || !form.username.trim() || !form.email.trim()}
-          />
-        </ScrollView>
-      </Sheet>
-
-      {/* Created: show the login details once */}
-      <Sheet visible={!!created} onClose={() => setCreated(null)} title={t("createdTitle")}>
-        <Text style={styles.meta}>{t("createdText")}</Text>
+      {/* Guest reset: show the new login once */}
+      <Sheet visible={!!resetResult} onClose={() => setResetResult(null)} title={t("resetTitle")}>
+        <Text style={styles.meta}>{t("resetText")}</Text>
         <View style={styles.details}>
           <Text style={styles.detailsText} selectable>
             {details}
@@ -395,47 +357,38 @@ export default function Admin() {
             }}
             style={{ flex: 1 }}
           />
-          <Button title={t("done")} onPress={() => setCreated(null)} style={{ flex: 1 }} />
+          <Button title={t("done")} onPress={() => setResetResult(null)} style={{ flex: 1 }} />
         </View>
       </Sheet>
 
-      {/* Change expiry */}
-      <Sheet visible={!!editing} onClose={() => setEditing(null)} title={t("expiryTitle")}>
-        {editing && (
-          <Text style={styles.meta}>
-            {editing.displayName} · @{editing.username} · {status(editing)}
-          </Text>
-        )}
-        {choiceRow(editChoice, setEditChoice)}
-        {editChoice === "pick" && <TextField value={editPicked} onChangeText={setEditPicked} placeholder="2026-12-31" hint={t("dateHint")} />}
-        <Button
-          title={t("save")}
-          icon="checkmark"
-          loading={!!editing && busyId === editing.id}
-          onPress={async () => {
-            if (!editing) return;
-            const expiresAt = expiryFor(editChoice, editPicked);
-            if (expiresAt === undefined) return setError(t("dateHint"));
-            if (await update(editing, { expiresAt })) setEditing(null);
-          }}
-        />
-      </Sheet>
     </Screen>
   );
 }
 
 const useStyles = makeStyles((colors) => ({
-  section: { color: colors.text, fontSize: 17, fontWeight: "700", marginTop: spacing.sm },
+  tabs: { flexDirection: "row", gap: spacing.xs, backgroundColor: colors.surface, borderRadius: radius.md, padding: 4 },
+  tab: { flex: 1, paddingVertical: 10, borderRadius: radius.md - 2, alignItems: "center" },
+  tabOn: { backgroundColor: colors.primary },
+  tabText: { color: colors.textMuted, fontSize: 14, fontWeight: "600" },
+  tabTextOn: { color: "#fff" },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+  },
+  searchInput: { flex: 1, color: colors.text, fontSize: 15, paddingVertical: 12 },
   row: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: spacing.xs, flexWrap: "wrap" },
   name: { color: colors.text, fontSize: 16, fontWeight: "700" },
   meta: { color: colors.textMuted, fontSize: 13, lineHeight: 19 },
   note: { color: colors.text, fontSize: 14, fontStyle: "italic" },
-  label: { color: colors.textMuted, fontSize: 13, fontWeight: "600", marginTop: spacing.xs },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: spacing.xs },
-  chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: colors.border },
-  chipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { color: colors.text, fontSize: 14 },
-  chipTextOn: { color: "#fff", fontWeight: "700" },
+  badge: { borderWidth: 1, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 1 },
+  badgeText: { fontSize: 11, fontWeight: "700" },
   details: { backgroundColor: colors.surfaceAlt, borderRadius: radius.md, padding: spacing.md },
   detailsText: { color: colors.text, fontSize: 14, lineHeight: 22, fontFamily: "monospace" },
 }));

@@ -65,6 +65,8 @@ const schema = z.object({
   STAFF_EMAIL_DOMAIN: z.string().trim().toLowerCase().default("lisancast.com"),
   // Mask offensive words in translations ("mask", the default) or leave translations untouched ("off").
   PROFANITY_FILTER: z.enum(["mask", "off"]).default("mask"),
+  // How long a guest account works after an admin presses Reset (hours). Then it's signed out automatically.
+  GUEST_SESSION_HOURS: z.coerce.number().positive().default(6),
   // LisanCast usernames (comma-separated) allowed to open the private Usage page in the app.
   ADMIN_USERNAMES: optional,
   // Public web address of the app, used in emails (e.g. https://app.lisancast.com). Defaults to the first CORS origin.

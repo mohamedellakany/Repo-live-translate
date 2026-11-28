@@ -46,7 +46,7 @@ const EXPIRED = "This account has expired. Contact the LisanCast team to reactiv
 const session = (res: Response, user: UserRow, status = 200) =>
   isExpired(user)
     ? res.status(403).json({ error: EXPIRED, expired: true })
-    : res.status(status).json({ token: signToken(user.id), user: toPublicUser(user) });
+    : res.status(status).json({ token: signToken(user.id, user.session_version), user: toPublicUser(user) });
 
 /** Issue + email a verification code. Failures to send are logged, not fatal, so sign-up still succeeds. */
 async function sendVerification(user: UserRow) {
