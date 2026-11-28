@@ -45,6 +45,7 @@ const AR: Record<string, string> = {
   "Choose an expiry date in the future": "اختر تاريخ انتهاء في المستقبل",
   "Admin accounts can't be changed here": "لا يمكن تعديل حسابات المشرفين من هنا",
   "Delete your own account from the Account page": "احذف حسابك من صفحة الحساب",
+  "Guest accounts can't be deleted": "لا يمكن حذف حسابات الضيوف",
   "Account not found": "الحساب غير موجود",
   "Only the main admin can change admin rights": "المشرف الرئيسي فقط يمكنه تغيير صلاحيات المشرفين",
   "Only guest accounts can be reset": "يمكن إعادة تعيين حسابات الضيوف فقط",

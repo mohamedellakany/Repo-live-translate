@@ -206,7 +206,8 @@ export default function Admin() {
     : "";
 
   const pending = (list ?? []).filter((s) => !s.canSpeak && s.speakRequestedAt && !s.expired);
-  const accounts = (list ?? []).filter((s) => !pending.includes(s));
+  // Guest accounts (ansar_guest) always first.
+  const accounts = (list ?? []).filter((s) => !pending.includes(s)).sort((a, b) => Number(!!b.isGuest) - Number(!!a.isGuest));
   const viewerIsOwner = !!user?.isOwner;
 
   const guestStatus = (s: ManagedSpeaker) =>
@@ -313,7 +314,7 @@ export default function Admin() {
                       </Text>
                       {s.isGuest && <Text style={[styles.meta, !s.expired && !!s.expiresAt && { color: colors.warning }]}>{guestStatus(s)}</Text>}
                     </View>
-                    {!locked && s.id !== user?.id && (
+                    {!locked && !s.isGuest && s.id !== user?.id && (
                       <Button title={t("del")} icon="trash-outline" variant="danger" onPress={() => remove(s)} loading={busyId === s.id} />
                     )}
                   </View>

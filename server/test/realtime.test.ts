@@ -638,6 +638,7 @@ test("admins: approvals and search, expiry, guest reset (6 hours, then signed ou
   assert.equal((await call("DELETE", `/api/admin/speakers/${other.id}`, undefined, helperToken)).status, 400); // other admin
   assert.equal((await call("DELETE", `/api/admin/speakers/${boss.id}`, undefined, helperToken)).status, 400); // main admin
   assert.equal((await call("DELETE", `/api/admin/speakers/${helper.id}`, undefined, helperToken)).status, 400); // yourself
+  assert.equal((await call("DELETE", `/api/admin/speakers/${guest.id}`, undefined, bossToken)).status, 400); // guest accounts stay
   assert.equal((await call("DELETE", `/api/admin/speakers/${goner.id}`, undefined, helperToken)).status, 204);
   await gonerOut;
   assert.equal(await users.byId(goner.id), undefined);

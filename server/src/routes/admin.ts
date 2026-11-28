@@ -150,6 +150,7 @@ adminRouter.delete("/speakers/:id", requireAuth, requireAdmin, async (req, res) 
   const target = await users.byId(String(req.params.id));
   if (!target) return res.status(404).json({ error: "Account not found" });
   if (target.id === req.user!.id) return res.status(400).json({ error: "Delete your own account from the Account page" });
+  if (target.is_guest) return res.status(400).json({ error: "Guest accounts can't be deleted" });
   if (isOwner(target) || (target.is_admin && !isOwner(req.user!))) return res.status(400).json({ error: "Admin accounts can't be changed here" });
   await signOutUser(target.id); // ends a live broadcast and signs them out everywhere
   await users.remove(target.id);
